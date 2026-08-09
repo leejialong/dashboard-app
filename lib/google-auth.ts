@@ -160,6 +160,22 @@ function formatReceivedAt(dateHeader: string | undefined, internalDateMs: string
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+// Gmail's `snippet` field comes back HTML-entity-encoded (e.g. "don&#39;t"
+// instead of "don't"). There's no DOM available server-side, so decode the
+// handful of entities that actually show up in snippets by hand rather than
+// pulling in a whole HTML-parsing dependency for this.
+function decodeHtmlEntities(text: string): string {
+  return text
+    .replace(/&#(\d+);/g, (_, dec: string) => String.fromCodePoint(Number(dec)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&"); // last, so it doesn't re-corrupt an already-decoded "&..." sequence
+}
+
 export interface GmailInboxResult {
   unreadCount: number;
   messages: GmailMessageSummary[];
@@ -184,7 +200,7 @@ export async function fetchGmailInbox(accessToken: string, maxResults = 15): Pro
         id: msg.id,
         sender: parseSenderName(getHeader(headers, "From")),
         subject: getHeader(headers, "Subject") || "(no subject)",
-        snippet: msg.snippet || "",
+        snippet: decodeHtmlEntities(msg.snippet || ""),
         receivedAt: formatReceivedAt(getHeader(headers, "Date"), msg.internalDate),
         unread: Array.isArray(msg.labelIds) && msg.labelIds.includes("UNREAD"),
       };

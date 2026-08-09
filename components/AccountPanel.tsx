@@ -19,6 +19,7 @@ interface AccountPanelProps {
   onSync: (id: number) => void;
   onSettings: (id: number) => void;
   onDisconnect: (id: number) => void;
+  onConnectAccount: () => void;
 }
 
 export default function AccountPanel({
@@ -37,6 +38,7 @@ export default function AccountPanel({
   onSync,
   onSettings,
   onDisconnect,
+  onConnectAccount,
 }: AccountPanelProps) {
   return (
     <div className="accounts-panel">
@@ -71,6 +73,9 @@ export default function AccountPanel({
             />
           )
         )}
+      </div>
+      <div className="accounts-footer">
+        <button className="add-account" onClick={onConnectAccount}>+ Connect account</button>
       </div>
     </div>
   );

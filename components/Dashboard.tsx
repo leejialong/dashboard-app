@@ -187,7 +187,6 @@ export default function Dashboard({ initialAccounts, initialEmails }: DashboardP
             {gmailError && ` · Gmail: ${gmailError}`}
           </p>
         </div>
-        <button className="add-account" onClick={() => setShowConnectModal(true)}>+ Connect account</button>
       </header>
 
       <div className="panels">
@@ -207,6 +206,7 @@ export default function Dashboard({ initialAccounts, initialEmails }: DashboardP
           onSync={handleSync}
           onSettings={handleSettings}
           onDisconnect={handleDisconnect}
+          onConnectAccount={() => setShowConnectModal(true)}
         />
         <StreamPanel
           emails={filteredEmails}
