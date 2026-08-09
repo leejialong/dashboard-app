@@ -5,3 +5,8 @@ out
 .DS_Store
 *.tsbuildinfo
 next-env.d.ts
+
+# Local test tooling (not part of the app)
+test-all.sh
+test-logs/
+check-env-and-dev.sh

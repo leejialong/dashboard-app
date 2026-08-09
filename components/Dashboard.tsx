@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Account, Email, ProviderFilter } from "@/lib/types";
+import { REAL_GMAIL_ACCOUNT_ID } from "@/lib/constants";
 import AccountPanel from "./AccountPanel";
 import StreamPanel from "./StreamPanel";
 import EmailDetailModal from "./EmailDetailModal";
@@ -12,10 +13,67 @@ interface DashboardProps {
   initialEmails: Email[];
 }
 
+type GmailMessagesResponse =
+  | { connected: false; error?: string }
+  | { connected: true; account: Account; emails: Email[] }
+  | { connected: true; account: null; emails: Email[]; error?: string };
+
 export default function Dashboard({ initialAccounts, initialEmails }: DashboardProps) {
   // Data (will later come from an API/database instead of props)
   const [accounts, setAccounts] = useState<Account[]>(initialAccounts);
   const [emails, setEmails] = useState<Email[]>(initialEmails);
+
+  // Phase 3: the one real, OAuth-connected Gmail account layers on top of
+  // the Phase 2 mock data. "idle" = haven't checked yet, "loading" =
+  // checking/fetching, "connected"/"disconnected" = result of that check.
+  const [gmailStatus, setGmailStatus] = useState<"idle" | "loading" | "connected" | "disconnected">("idle");
+  const [gmailError, setGmailError] = useState<string | null>(null);
+
+  const mergeRealAccount = useCallback((account: Account | null, realEmails: Email[]) => {
+    setAccounts((prev) => {
+      const withoutReal = prev.filter((a) => a.id !== REAL_GMAIL_ACCOUNT_ID);
+      return account ? [account, ...withoutReal] : withoutReal;
+    });
+    setEmails((prev) => {
+      const withoutReal = prev.filter((e) => e.accountId !== REAL_GMAIL_ACCOUNT_ID);
+      return account ? [...realEmails, ...withoutReal] : withoutReal;
+    });
+  }, []);
+
+  const refreshGmail = useCallback(async () => {
+    setGmailStatus("loading");
+    setGmailError(null);
+    try {
+      const res = await fetch("/api/gmail/messages", { cache: "no-store" });
+      const data: GmailMessagesResponse = await res.json();
+      if (!data.connected) {
+        setGmailStatus("disconnected");
+        if (data.error) setGmailError(data.error);
+        mergeRealAccount(null, []);
+        return;
+      }
+      if (!data.account) {
+        // Signed in, but the Gmail API call itself failed (expired scope,
+        // Gmail API not enabled on the Google Cloud project, etc.)
+        setGmailStatus("connected");
+        setGmailError(data.error ?? "gmail_fetch_failed");
+        return;
+      }
+      setGmailStatus("connected");
+      mergeRealAccount(data.account, data.emails);
+    } catch (err) {
+      setGmailStatus("disconnected");
+      setGmailError(err instanceof Error ? err.message : "network_error");
+    }
+  }, [mergeRealAccount]);
+
+  // Check once on mount whether a Gmail account is already connected
+  // (covers both a fresh redirect back from Google and returning later
+  // with a still-valid session cookie).
+  useEffect(() => {
+    refreshGmail();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // UI state
   const [accountSearch, setAccountSearch] = useState("");
@@ -74,8 +132,12 @@ export default function Dashboard({ initialAccounts, initialEmails }: DashboardP
   }
 
   function handleSync(id: number) {
-    // Mock sync — no real network call yet.
     setOpenMoreMenuId(null);
+    if (id === REAL_GMAIL_ACCOUNT_ID) {
+      refreshGmail();
+      return;
+    }
+    // Mock accounts: no real network call yet.
   }
 
   function handleSettings(id: number) {
@@ -83,7 +145,18 @@ export default function Dashboard({ initialAccounts, initialEmails }: DashboardP
     setOpenMoreMenuId(null);
   }
 
-  function handleDisconnect(id: number) {
+  async function handleDisconnect(id: number) {
+    if (id === REAL_GMAIL_ACCOUNT_ID) {
+      setGmailStatus("loading");
+      try {
+        await fetch("/api/auth/google/disconnect", { method: "POST" });
+      } catch {
+        // Even if the network call fails, still drop it from local state
+        // below — worst case the cookie/grant lingers server-side and the
+        // next refreshGmail() call will surface it again.
+      }
+      setGmailStatus("disconnected");
+    }
     setAccounts((prev) => prev.filter((a) => a.id !== id));
     setEmails((prev) => prev.filter((e) => e.accountId !== id));
     if (expandedAccountId === id) setExpandedAccountId(null);
@@ -108,7 +181,11 @@ export default function Dashboard({ initialAccounts, initialEmails }: DashboardP
       <header className="page">
         <div>
           <h1>Unified Inbox</h1>
-          <p>{accounts.length} connected accounts · {unreadTotal} unread</p>
+          <p>
+            {accounts.length} connected accounts · {unreadTotal} unread
+            {gmailStatus === "loading" && " · syncing Gmail…"}
+            {gmailError && ` · Gmail: ${gmailError}`}
+          </p>
         </div>
         <button className="add-account" onClick={() => setShowConnectModal(true)}>+ Connect account</button>
       </header>
