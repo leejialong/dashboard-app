@@ -181,6 +181,32 @@ export interface GmailInboxResult {
   messages: GmailMessageSummary[];
 }
 
+// Gmail rate-limits concurrent per-user requests ("Too many concurrent
+// requests for user." / 429). Cap detail fetches so a single inbox load
+// does not fan out ~15 parallel GETs on top of the label+list calls.
+const GMAIL_MESSAGE_CONCURRENCY = 4;
+
+async function mapInBatchesSettled<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const out: R[] = [];
+  for (let i = 0; i < items.length; i += concurrency) {
+    const chunk = items.slice(i, i + concurrency);
+    const settled = await Promise.allSettled(chunk.map(fn));
+    for (let j = 0; j < settled.length; j++) {
+      const result = settled[j];
+      if (result.status === "fulfilled") {
+        out.push(result.value);
+      } else {
+        console.error(`Gmail message fetch failed for id=${String(chunk[j])}:`, result.reason);
+      }
+    }
+  }
+  return out;
+}
+
 export async function fetchGmailInbox(accessToken: string, maxResults = 15): Promise<GmailInboxResult> {
   const [label, list] = await Promise.all([
     gmailGet(accessToken, `/labels/INBOX`),
@@ -189,24 +215,22 @@ export async function fetchGmailInbox(accessToken: string, maxResults = 15): Pro
 
   const ids: string[] = (list.messages || []).map((m: { id: string }) => m.id);
 
-  const messages = await Promise.all(
-    ids.map(async (id) => {
-      const msg = await gmailGet(
-        accessToken,
-        `/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`
-      );
-      const headers: GmailHeader[] | undefined = msg.payload?.headers;
-      const summary: GmailMessageSummary = {
-        id: msg.id,
-        sender: parseSenderName(getHeader(headers, "From")),
-        subject: getHeader(headers, "Subject") || "(no subject)",
-        snippet: decodeHtmlEntities(msg.snippet || ""),
-        receivedAt: formatReceivedAt(getHeader(headers, "Date"), msg.internalDate),
-        unread: Array.isArray(msg.labelIds) && msg.labelIds.includes("UNREAD"),
-      };
-      return summary;
-    })
-  );
+  const messages = await mapInBatchesSettled(ids, GMAIL_MESSAGE_CONCURRENCY, async (id) => {
+    const msg = await gmailGet(
+      accessToken,
+      `/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`
+    );
+    const headers: GmailHeader[] | undefined = msg.payload?.headers;
+    const summary: GmailMessageSummary = {
+      id: msg.id,
+      sender: parseSenderName(getHeader(headers, "From")),
+      subject: getHeader(headers, "Subject") || "(no subject)",
+      snippet: decodeHtmlEntities(msg.snippet || ""),
+      receivedAt: formatReceivedAt(getHeader(headers, "Date"), msg.internalDate),
+      unread: Array.isArray(msg.labelIds) && msg.labelIds.includes("UNREAD"),
+    };
+    return summary;
+  });
 
   return {
     unreadCount: typeof label.messagesUnread === "number" ? label.messagesUnread : 0,

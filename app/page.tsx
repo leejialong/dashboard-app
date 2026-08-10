@@ -1,9 +1,15 @@
+import { Suspense } from "react";
 import Dashboard from "@/components/Dashboard";
 
-// Mock/demo accounts have been removed -- the dashboard now starts empty
-// and only shows the real, OAuth-connected Gmail account once you click
-// "+ Connect account". (lib/mock-data.ts is kept around for reference /
-// if demo data is ever wanted again, just no longer wired up here.)
+// Dashboard starts empty and only shows the real, OAuth-connected Gmail
+// account once you click "+ Connect account". Suspense is required because
+// Dashboard reads ?gmail_error= via useSearchParams (OAuth failure codes
+// from /api/auth/google*). lib/mock-data.ts still exports provider helpers
+// used by ExpandedAccount; its mock arrays are intentionally unwired.
 export default function Home() {
-  return <Dashboard initialAccounts={[]} initialEmails={[]} />;
+  return (
+    <Suspense fallback={null}>
+      <Dashboard initialAccounts={[]} initialEmails={[]} />
+    </Suspense>
+  );
 }

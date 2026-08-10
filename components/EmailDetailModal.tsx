@@ -7,14 +7,15 @@ interface EmailDetailModalProps {
 }
 
 export default function EmailDetailModal({ email, account, onClose }: EmailDetailModalProps) {
-  // Deep-links straight to this message in Gmail's own web UI. If the
-  // browser is already signed into this Gmail account, it opens directly;
-  // otherwise Google's own login page handles auth -- this app never sees
-  // a password. Only set for the real, OAuth-connected Gmail account (mock
-  // emails have no real Gmail message behind them).
-  const gmailUrl = email.gmailMessageId
-    ? `https://mail.google.com/mail/u/0/#inbox/${email.gmailMessageId}`
-    : null;
+  // Deep-link into Gmail's web UI for this message. Use authuser=<email>
+  // (not /u/0/) so multi-account browsers open the connected inbox, not
+  // whichever Google account happens to occupy slot 0. Only set when we
+  // have both a real Gmail message id and the connected account email —
+  // this app never sees a password.
+  const gmailUrl =
+    email.gmailMessageId && account?.email
+      ? `https://mail.google.com/mail/?authuser=${encodeURIComponent(account.email)}#inbox/${email.gmailMessageId}`
+      : null;
 
   return (
     <div className="overlay">

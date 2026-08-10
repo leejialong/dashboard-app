@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Account, Email, ProviderFilter } from "@/lib/types";
 import { REAL_GMAIL_ACCOUNT_ID } from "@/lib/constants";
 import AccountPanel from "./AccountPanel";
@@ -23,11 +24,11 @@ export default function Dashboard({ initialAccounts, initialEmails }: DashboardP
   const [accounts, setAccounts] = useState<Account[]>(initialAccounts);
   const [emails, setEmails] = useState<Email[]>(initialEmails);
 
-  // Phase 3: the one real, OAuth-connected Gmail account layers on top of
-  // the Phase 2 mock data. "idle" = haven't checked yet, "loading" =
+  // Real OAuth-connected Gmail. "idle" = haven't checked yet, "loading" =
   // checking/fetching, "connected"/"disconnected" = result of that check.
   const [gmailStatus, setGmailStatus] = useState<"idle" | "loading" | "connected" | "disconnected">("idle");
   const [gmailError, setGmailError] = useState<string | null>(null);
+  const searchParams = useSearchParams();
 
   const mergeRealAccount = useCallback((account: Account | null, realEmails: Email[]) => {
     setAccounts((prev) => {
@@ -42,12 +43,13 @@ export default function Dashboard({ initialAccounts, initialEmails }: DashboardP
 
   const refreshGmail = useCallback(async () => {
     setGmailStatus("loading");
-    setGmailError(null);
     try {
       const res = await fetch("/api/gmail/messages", { cache: "no-store" });
       const data: GmailMessagesResponse = await res.json();
       if (!data.connected) {
         setGmailStatus("disconnected");
+        // Only overwrite when the API returns an error — preserve an
+        // OAuth ?gmail_error= message already shown from the redirect.
         if (data.error) setGmailError(data.error);
         mergeRealAccount(null, []);
         return;
@@ -60,12 +62,25 @@ export default function Dashboard({ initialAccounts, initialEmails }: DashboardP
         return;
       }
       setGmailStatus("connected");
+      setGmailError(null);
       mergeRealAccount(data.account, data.emails);
     } catch (err) {
       setGmailStatus("disconnected");
       setGmailError(err instanceof Error ? err.message : "network_error");
     }
   }, [mergeRealAccount]);
+
+  // Surface OAuth failures redirected as /?gmail_error=<code>, then strip
+  // the param so a refresh does not re-show a stale error.
+  useEffect(() => {
+    const oauthError = searchParams.get("gmail_error");
+    if (!oauthError) return;
+    setGmailError(oauthError);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("gmail_error");
+    const qs = url.searchParams.toString();
+    window.history.replaceState({}, "", qs ? `${url.pathname}?${qs}` : url.pathname);
+  }, [searchParams]);
 
   // Check once on mount whether a Gmail account is already connected
   // (covers both a fresh redirect back from Google and returning later
@@ -134,10 +149,11 @@ export default function Dashboard({ initialAccounts, initialEmails }: DashboardP
   function handleSync(id: number) {
     setOpenMoreMenuId(null);
     if (id === REAL_GMAIL_ACCOUNT_ID) {
+      setGmailError(null);
       refreshGmail();
       return;
     }
-    // Mock accounts: no real network call yet.
+    // Non-Gmail / unwired accounts: no network call yet.
   }
 
   function handleSettings(id: number) {
