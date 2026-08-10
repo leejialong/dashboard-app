@@ -20,6 +20,10 @@ export interface Email {
   body: string;
   receivedAt: string; // display time, e.g. "10:32"
   unread: boolean;
+  // Only set for the real, OAuth-connected Gmail account (undefined for
+  // mock emails) -- the actual Gmail message id, used to deep-link to
+  // "Open in Gmail" without the app ever touching a password.
+  gmailMessageId?: string;
 }
 
 export type ProviderFilter = "all" | "gmail" | "outlook" | "unread";

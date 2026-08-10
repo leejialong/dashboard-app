@@ -312,5 +312,18 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
   cursor: pointer;
   float: right;
 }
+.modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+}
+.modal-actions .close { float: none; }
+.open-gmail {
+  color: var(--accent);
+  font-size: 12.5px;
+  text-decoration: none;
+}
+.open-gmail:hover { text-decoration: underline; }
 .modal.small { width: 340px; text-align: center; }
 .modal.small p { font-size: 13px; color: var(--muted); line-height: 1.6; margin: 0 0 16px; }

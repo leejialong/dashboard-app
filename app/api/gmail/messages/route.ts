@@ -71,6 +71,7 @@ export async function GET() {
       body: m.snippet, // metadata-format fetch — see README's Phase 3 notes
       receivedAt: m.receivedAt,
       unread: m.unread,
+      gmailMessageId: m.id,
     }));
 
     const res = NextResponse.json<MessagesResponse>({ connected: true, account, emails });
