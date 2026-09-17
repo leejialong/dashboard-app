@@ -350,6 +350,38 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
 .modal.small { width: 340px; text-align: center; }
 .modal.small p { font-size: 13px; color: var(--muted); line-height: 1.6; margin: 0 0 16px; }
 
+.bb-poc {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.bb-poc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.bb-poc-head p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+.bb-poc-head em { font-style: normal; font-size: 12px; }
+.bb-poc-head em.on { color: var(--accent); }
+.bb-poc-head em.off { color: var(--danger); }
+.bb-poc-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.bb-poc-log {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
 .grok-page { min-height: 100vh; }
 .grok-shell {
   flex: 1;

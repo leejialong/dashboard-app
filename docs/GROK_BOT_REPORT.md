@@ -132,3 +132,23 @@ That laptop stack already does “open / reuse Chrome tab + send prompt + extrac
 4. You still click Send on DeepSeek. The answer stays on DeepSeek, not in `/grok`.
 
 Backup of the site before the Grok work: git branch `backup/main-20260917-pre-grok` and zip `C:\Users\user\Downloads\dashboard-app-backup-main_20260917_142411.zip`.
+
+---
+
+## 7. Browserbase Cloud Chrome POC (17 Sep 2026)
+
+New path (DeepSeek only):
+
+`/grok` → Vercel `/api/grok/bb/*` → Browserbase remote Chromium → `chat.deepseek.com`
+
+- No Local Grok, no `127.0.0.1:8765`, no DeepSeek API key.
+- Login happens in Browserbase **Live View**. Cookies stay in a Browserbase **Context** (`persist: true`). This site only stores the Context **id** in an httpOnly cookie, never DeepSeek cookies.
+- POC buttons: **Open Cloud Chrome**, then **Send hello**.
+- If Browserbase env is missing, the panel says **Not configured**.
+
+Set on Vercel (or Marketplace integration):
+
+- `BROWSERBASE_API_KEY`
+- `BROWSERBASE_PROJECT_ID`
+
+Unknown until tested with real keys: whether DeepSeek accepts that Cloud Chrome (403 / abnormal environment).

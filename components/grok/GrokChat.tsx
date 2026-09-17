@@ -24,6 +24,7 @@ export default function GrokChat() {
   const [draft, setDraft] = useState("");
   const [connected, setConnected] = useState<Connected>({});
   const [hist, setHist] = useState<Record<string, Msg[]>>({});
+  const [cloudReady, setCloudReady] = useState(false);
 
   const bot = useMemo(() => GROK_BOTS.find((b) => b.id === botId) || GROK_BOTS[0], [botId]);
   const messages = hist[botId] || [];
@@ -31,6 +32,10 @@ export default function GrokChat() {
 
   useEffect(() => {
     setConnected(loadConnected());
+    fetch("/api/grok/bb/status", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setCloudReady(Boolean(d.configured)))
+      .catch(() => setCloudReady(false));
   }, []);
 
   function persist(next: Connected) {
@@ -38,7 +43,24 @@ export default function GrokChat() {
     localStorage.setItem(STORE, JSON.stringify(next));
   }
 
-  function connect(target: GrokBot) {
+  async function connect(target: GrokBot) {
+    if (target.id === "deepseek" && cloudReady) {
+      try {
+        const res = await fetch("/api/grok/bb/connect", { method: "POST" });
+        const data = (await res.json()) as { liveUrl?: string; error?: string };
+        if (data.liveUrl) window.open(data.liveUrl, "dash_bb_deepseek");
+        persist({ ...connected, [target.id]: true });
+        if (data.error) {
+          setHist((prev) => ({
+            ...prev,
+            [target.id]: [...(prev[target.id] || []), { role: "bot", text: data.error || "Cloud Chrome started." }],
+          }));
+        }
+        return;
+      } catch {
+        /* fall through to site tab */
+      }
+    }
     window.open(target.connectUrl, grokWindowName(target.id));
     persist({ ...connected, [target.id]: true });
   }
@@ -47,7 +69,7 @@ export default function GrokChat() {
     persist({ ...connected, [target.id]: false });
   }
 
-  function send() {
+  async function send() {
     const question = draft.trim();
     if (!question) return;
 
@@ -64,6 +86,35 @@ export default function GrokChat() {
       return;
     }
 
+    if (bot.id === "deepseek" && cloudReady) {
+      setHist((prev) => ({
+        ...prev,
+        [botId]: [...(prev[botId] || []), { role: "user", text: question }, { role: "bot", text: "Cloud Chrome is typing on DeepSeek…" }],
+      }));
+      setDraft("");
+      try {
+        const res = await fetch("/api/grok/bb/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question }),
+        });
+        const data = (await res.json()) as { ok?: boolean; answer?: string; error?: string; liveUrl?: string };
+        if (data.liveUrl && !data.ok) window.open(data.liveUrl, "dash_bb_deepseek");
+        setHist((prev) => {
+          const list = [...(prev[botId] || [])];
+          list[list.length - 1] = { role: "bot", text: data.ok && data.answer ? data.answer : data.error || "No DeepSeek reply" };
+          return { ...prev, [botId]: list };
+        });
+      } catch (err) {
+        setHist((prev) => {
+          const list = [...(prev[botId] || [])];
+          list[list.length - 1] = { role: "bot", text: err instanceof Error ? err.message : "Cloud ask failed" };
+          return { ...prev, [botId]: list };
+        });
+      }
+      return;
+    }
+
     const popup = window.open(grokPromptUrl(bot, question), grokWindowName(bot.id));
     setHist((prev) => ({
       ...prev,
@@ -73,7 +124,7 @@ export default function GrokChat() {
         {
           role: "bot",
           text: popup
-            ? `Same prompt sent to the existing ${bot.name} tab (not a new tab). This website cannot auto-click Send there or pull the answer back. That needs Local Grok or a browser extension.`
+            ? `Same prompt sent to the existing ${bot.name} tab (not a new tab). This website cannot auto-click Send there or pull the answer back.`
             : "Popup blocked. Allow popups for this site, then Send again.",
         },
       ],
@@ -108,9 +159,13 @@ export default function GrokChat() {
           <div>
             <h2>{bot.name}</h2>
             <p>
-              {isOn
-                ? "Online. Send reuses the same tab with your exact prompt. This page cannot read the reply."
-                : "Offline. Connect opens that site once so you can log in."}
+              {bot.id === "deepseek" && cloudReady
+                ? isOn
+                  ? "Online. Send types in Cloud Chrome and should return the reply here."
+                  : "Offline. Connect opens Cloud Chrome so you can log in to DeepSeek."
+                : isOn
+                  ? "Online. Send reuses the same tab with your exact prompt. This page cannot read the reply."
+                  : "Offline. Connect opens that site once so you can log in."}
             </p>
           </div>
           {isOn ? (
