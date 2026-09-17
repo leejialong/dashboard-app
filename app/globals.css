@@ -1,16 +1,16 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-  --bg: #FFFFFF;
-  --surface: #FFFFFF;
-  --surface-2: #F4F5F7;
-  --border: #E2E4EA;
-  --text: #1A1D26;
-  --muted: #6B7080;
-  --accent: #0D9488;
-  --accent-dim: #E6F7F5;
-  --signal: #D97706;
-  --danger: #DC2626;
+  --bg: #14161B;
+  --surface: #1C1F27;
+  --surface-2: #232733;
+  --border: #2C303B;
+  --text: #E9EAEE;
+  --muted: #8B90A0;
+  --accent: #4FD1C5;
+  --accent-dim: #2C4A48;
+  --signal: #F2A65A;
+  --danger: #E8636A;
 }
 
 * { box-sizing: border-box; }
@@ -194,7 +194,7 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
   min-width: 150px;
   z-index: 20;
   overflow: hidden;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
 }
 .more-menu button {
   display: block;
@@ -285,7 +285,7 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.35);
+  background: rgba(0,0,0,0.6);
   display: flex;
   align-items: center;
   justify-content: center;
