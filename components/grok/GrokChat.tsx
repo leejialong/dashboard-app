@@ -19,23 +19,36 @@ function loadConnected(): Connected {
   }
 }
 
+type AskPayload = {
+  ok?: boolean;
+  answer?: string;
+  error?: string;
+  liveUrl?: string;
+  needLogin?: boolean;
+  configured?: boolean;
+};
+
 export default function GrokChat() {
   const [botId, setBotId] = useState(GROK_BOTS[0].id);
   const [draft, setDraft] = useState("");
   const [connected, setConnected] = useState<Connected>({});
   const [hist, setHist] = useState<Record<string, Msg[]>>({});
   const [cloudReady, setCloudReady] = useState(false);
+  const [sending, setSending] = useState(false);
 
   const bot = useMemo(() => GROK_BOTS.find((b) => b.id === botId) || GROK_BOTS[0], [botId]);
   const messages = hist[botId] || [];
-  const isOn = !!connected[botId];
+  const isDeepSeek = bot.id === "deepseek";
+  const isOn = isDeepSeek ? cloudReady : !!connected[botId];
 
   useEffect(() => {
     setConnected(loadConnected());
-    fetch("/api/grok/bb/status", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => setCloudReady(Boolean(d.configured)))
-      .catch(() => setCloudReady(false));
+    refreshCloud().catch(() => setCloudReady(false));
+    const onReady = () => {
+      refreshCloud().catch(() => undefined);
+    };
+    window.addEventListener("bb-configured", onReady);
+    return () => window.removeEventListener("bb-configured", onReady);
   }, []);
 
   function persist(next: Connected) {
@@ -43,35 +56,94 @@ export default function GrokChat() {
     localStorage.setItem(STORE, JSON.stringify(next));
   }
 
+  async function refreshCloud() {
+    const res = await fetch("/api/grok/bb/status", { cache: "no-store" });
+    const data = (await res.json()) as { configured?: boolean };
+    setCloudReady(Boolean(data.configured));
+    return Boolean(data.configured);
+  }
+
   async function connect(target: GrokBot) {
-    if (target.id === "deepseek" && cloudReady) {
-      try {
-        const res = await fetch("/api/grok/bb/connect", { method: "POST" });
-        const data = (await res.json()) as { liveUrl?: string; error?: string };
-        if (data.liveUrl) window.open(data.liveUrl, "dash_bb_deepseek");
-        persist({ ...connected, [target.id]: true });
-        if (data.error) {
-          setHist((prev) => ({
-            ...prev,
-            [target.id]: [...(prev[target.id] || []), { role: "bot", text: data.error || "Cloud Chrome started." }],
-          }));
-        }
+    if (target.id === "deepseek") {
+      const ready = await refreshCloud();
+      if (!ready) {
+        setHist((prev) => ({
+          ...prev,
+          [target.id]: [
+            ...(prev[target.id] || []),
+            { role: "bot", text: "Save the Browserbase key in the panel above, then Connect. DeepSeek Send will return the answer here." },
+          ],
+        }));
         return;
-      } catch {
-        /* fall through to site tab */
       }
+      const res = await fetch("/api/grok/bb/connect", { method: "POST" });
+      const data = (await res.json()) as AskPayload;
+      if (data.liveUrl) window.open(data.liveUrl, "dash_bb_deepseek");
+      setHist((prev) => ({
+        ...prev,
+        [target.id]: [
+          ...(prev[target.id] || []),
+          { role: "bot", text: data.error || "Cloud Chrome is open. Log in to DeepSeek there, then Send. The answer comes back here." },
+        ],
+      }));
+      return;
     }
     window.open(target.connectUrl, grokWindowName(target.id));
     persist({ ...connected, [target.id]: true });
   }
 
   function disconnect(target: GrokBot) {
+    if (target.id === "deepseek") {
+      fetch("/api/grok/bb/setup", { method: "DELETE" }).catch(() => undefined);
+      setCloudReady(false);
+      return;
+    }
     persist({ ...connected, [target.id]: false });
+  }
+
+  async function askDeepSeek(question: string) {
+    setHist((prev) => ({
+      ...prev,
+      deepseek: [...(prev.deepseek || []), { role: "user", text: question }, { role: "bot", text: "Cloud Chrome is asking DeepSeek…" }],
+    }));
+    setDraft("");
+    setSending(true);
+    try {
+      const res = await fetch("/api/grok/bb/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question }),
+      });
+      const data = (await res.json()) as AskPayload;
+      if (data.liveUrl && !data.ok) window.open(data.liveUrl, "dash_bb_deepseek");
+      const reply = data.ok && data.answer
+        ? data.answer
+        : data.error || "Cloud Chrome did not return a DeepSeek answer.";
+      setHist((prev) => {
+        const list = [...(prev.deepseek || [])];
+        list[list.length - 1] = { role: "bot", text: reply };
+        return { ...prev, deepseek: list };
+      });
+      if (data.configured === false) setCloudReady(false);
+    } catch (err) {
+      setHist((prev) => {
+        const list = [...(prev.deepseek || [])];
+        list[list.length - 1] = { role: "bot", text: err instanceof Error ? err.message : "Cloud ask failed" };
+        return { ...prev, deepseek: list };
+      });
+    } finally {
+      setSending(false);
+    }
   }
 
   async function send() {
     const question = draft.trim();
-    if (!question) return;
+    if (!question || sending) return;
+
+    if (isDeepSeek) {
+      await askDeepSeek(question);
+      return;
+    }
 
     if (!connected[bot.id]) {
       setHist((prev) => ({
@@ -79,39 +151,10 @@ export default function GrokChat() {
         [botId]: [
           ...(prev[botId] || []),
           { role: "user", text: question },
-          { role: "bot", text: `${bot.name} is Offline. Click Connect once (opens that site). Then Send. This page cannot type into that tab or read its answer.` },
+          { role: "bot", text: `${bot.name} is Offline. Click Connect once, then Send.` },
         ],
       }));
       setDraft("");
-      return;
-    }
-
-    if (bot.id === "deepseek" && cloudReady) {
-      setHist((prev) => ({
-        ...prev,
-        [botId]: [...(prev[botId] || []), { role: "user", text: question }, { role: "bot", text: "Cloud Chrome is typing on DeepSeek…" }],
-      }));
-      setDraft("");
-      try {
-        const res = await fetch("/api/grok/bb/ask", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question }),
-        });
-        const data = (await res.json()) as { ok?: boolean; answer?: string; error?: string; liveUrl?: string };
-        if (data.liveUrl && !data.ok) window.open(data.liveUrl, "dash_bb_deepseek");
-        setHist((prev) => {
-          const list = [...(prev[botId] || [])];
-          list[list.length - 1] = { role: "bot", text: data.ok && data.answer ? data.answer : data.error || "No DeepSeek reply" };
-          return { ...prev, [botId]: list };
-        });
-      } catch (err) {
-        setHist((prev) => {
-          const list = [...(prev[botId] || [])];
-          list[list.length - 1] = { role: "bot", text: err instanceof Error ? err.message : "Cloud ask failed" };
-          return { ...prev, [botId]: list };
-        });
-      }
       return;
     }
 
@@ -124,7 +167,7 @@ export default function GrokChat() {
         {
           role: "bot",
           text: popup
-            ? `Same prompt sent to the existing ${bot.name} tab (not a new tab). This website cannot auto-click Send there or pull the answer back.`
+            ? `Same prompt sent to the existing ${bot.name} tab.`
             : "Popup blocked. Allow popups for this site, then Send again.",
         },
       ],
@@ -135,9 +178,9 @@ export default function GrokChat() {
   return (
     <div className="grok-shell">
       <aside className="grok-side">
-        <div className="grok-side-head">Bots · {GROK_BOTS.filter((b) => connected[b.id]).length} connected</div>
+        <div className="grok-side-head">Bots · {GROK_BOTS.filter((b) => (b.id === "deepseek" ? cloudReady : connected[b.id])).length} connected</div>
         {GROK_BOTS.map((b) => {
-          const on = !!connected[b.id];
+          const on = b.id === "deepseek" ? cloudReady : !!connected[b.id];
           return (
             <button
               key={b.id}
@@ -159,16 +202,22 @@ export default function GrokChat() {
           <div>
             <h2>{bot.name}</h2>
             <p>
-              {bot.id === "deepseek" && cloudReady
-                ? isOn
-                  ? "Online. Send types in Cloud Chrome and should return the reply here."
-                  : "Offline. Connect opens Cloud Chrome so you can log in to DeepSeek."
+              {isDeepSeek
+                ? cloudReady
+                  ? "Online. Send types in Cloud Chrome and shows the DeepSeek answer here."
+                  : "Offline. Save the Browserbase key above, Connect once to log in, then Send."
                 : isOn
-                  ? "Online. Send reuses the same tab with your exact prompt. This page cannot read the reply."
+                  ? "Online. Send reuses the same tab with your exact prompt."
                   : "Offline. Connect opens that site once so you can log in."}
             </p>
           </div>
-          {isOn ? (
+          {isDeepSeek ? (
+            cloudReady ? (
+              <button type="button" className="add-account" onClick={() => connect(bot)}>Open Cloud Chrome</button>
+            ) : (
+              <button type="button" className="add-account" onClick={() => connect(bot)}>Connect</button>
+            )
+          ) : isOn ? (
             <button type="button" className="add-account" onClick={() => disconnect(bot)}>Disconnect</button>
           ) : (
             <button type="button" className="add-account" onClick={() => connect(bot)}>Connect</button>
@@ -177,7 +226,9 @@ export default function GrokChat() {
         <div className="grok-thread">
           {messages.length === 0 && (
             <div className="empty-state">
-              No API key. Connect opens the site. Send puts the same text in that tab. The answer cannot come back here from a website.
+              {isDeepSeek
+                ? "Type a prompt and Send. The Vercel server asks DeepSeek in Cloud Chrome and draws the answer in this thread."
+                : "Connect opens the site. Send puts the same text in that tab."}
             </div>
           )}
           {messages.map((m, i) => (
@@ -200,10 +251,10 @@ export default function GrokChat() {
                 send();
               }
             }}
-            placeholder={`Same prompt for ${bot.name}…`}
+            placeholder={isDeepSeek ? "Ask DeepSeek. The answer comes back here…" : `Same prompt for ${bot.name}…`}
             rows={2}
           />
-          <button type="submit" disabled={!draft.trim()}>Send</button>
+          <button type="submit" disabled={!draft.trim() || sending}>{sending ? "…" : "Send"}</button>
         </form>
       </section>
     </div>

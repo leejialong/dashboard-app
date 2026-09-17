@@ -18,7 +18,7 @@ export const maxDuration = 60;
 export async function POST(req: Request) {
   if (!bbConfigured()) {
     return NextResponse.json(
-      { ok: false, configured: false, error: "BROWSERBASE_API_KEY is missing" },
+      { ok: false, configured: false, error: "Save the Browserbase key above first. Then Send will return the DeepSeek answer here." },
       { status: 503 }
     );
   }
@@ -77,6 +77,7 @@ export async function POST(req: Request) {
     const result = await sendAndRead(page, question);
     return NextResponse.json({
       ok: true,
+      configured: true,
       answer: result.answer,
       waitedMs: result.waitedMs,
       url: page.url(),

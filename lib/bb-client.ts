@@ -3,6 +3,8 @@ import Browserbase from "@browserbasehq/sdk";
 
 export const BB_CTX_COOKIE = "bb_ds_ctx";
 export const BB_SID_COOKIE = "bb_ds_sid";
+export const BB_KEY_COOKIE = "bb_api_key";
+export const BB_PROJ_COOKIE = "bb_project_id";
 
 const COOKIE_BASE = {
   httpOnly: true,
@@ -11,12 +13,20 @@ const COOKIE_BASE = {
   path: "/",
 };
 
+export function bbApiKey(): string {
+  return process.env.BROWSERBASE_API_KEY || cookies().get(BB_KEY_COOKIE)?.value || "";
+}
+
+export function bbProjectId(): string {
+  return process.env.BROWSERBASE_PROJECT_ID || cookies().get(BB_PROJ_COOKIE)?.value || "";
+}
+
 export function bbConfigured(): boolean {
-  return Boolean(process.env.BROWSERBASE_API_KEY);
+  return Boolean(bbApiKey());
 }
 
 export function getBrowserbase(): Browserbase {
-  const apiKey = process.env.BROWSERBASE_API_KEY;
+  const apiKey = bbApiKey();
   if (!apiKey) {
     throw new Error("BROWSERBASE_API_KEY is not set");
   }
@@ -58,18 +68,38 @@ export function clearSessionId() {
   });
 }
 
+export function writeBrowserbaseCreds(apiKey: string, projectId: string) {
+  cookies().set({
+    ...COOKIE_BASE,
+    name: BB_KEY_COOKIE,
+    value: apiKey,
+    maxAge: 60 * 60 * 24 * 30,
+  });
+  cookies().set({
+    ...COOKIE_BASE,
+    name: BB_PROJ_COOKIE,
+    value: projectId,
+    maxAge: 60 * 60 * 24 * 30,
+  });
+}
+
+export function clearBrowserbaseCreds() {
+  cookies().set({ ...COOKIE_BASE, name: BB_KEY_COOKIE, value: "", maxAge: 0 });
+  cookies().set({ ...COOKIE_BASE, name: BB_PROJ_COOKIE, value: "", maxAge: 0 });
+}
+
 export async function ensureContextId(bb: Browserbase): Promise<string> {
   const existing = readContextId();
   if (existing) return existing;
 
-  const projectId = process.env.BROWSERBASE_PROJECT_ID;
+  const projectId = bbProjectId();
   const created = await bb.contexts.create(projectId ? { projectId } : {});
   writeContextId(created.id);
   return created.id;
 }
 
 export function sessionCreateParams(contextId: string, keepAlive: boolean) {
-  const projectId = process.env.BROWSERBASE_PROJECT_ID;
+  const projectId = bbProjectId();
   return {
     ...(projectId ? { projectId } : {}),
     keepAlive,

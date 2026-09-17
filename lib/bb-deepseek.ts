@@ -80,32 +80,35 @@ async function clickSend(page: Page): Promise<void> {
   await page.keyboard.press("Enter");
 }
 
-async function collectAssistantTexts(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
-    const selectors = [
-      ".ds-markdown",
-      "[class*='ds-markdown']",
-      "[class*='markdown']",
-      "[class*='assistant']",
-      "[data-role='assistant']",
-    ];
-    const seen = new Set<string>();
-    const out: string[] = [];
-    for (const sel of selectors) {
-      document.querySelectorAll(sel).forEach((node) => {
-        const text = (node as HTMLElement).innerText.replace(/\s+/g, " ").trim();
-        if (text.length > 8 && !seen.has(text)) {
-          seen.add(text);
-          out.push(text);
-        }
-      });
-    }
-    return out;
-  });
+async function extractDeepSeek(page: Page, prompt: string): Promise<string> {
+  return page.evaluate((question) => {
+    const bad = (t: string) => !t || t === question || /^[---]?\s*\d{1,3}$/.test(t.trim());
+    const isSidebarish = (el: Element | null) => {
+      let n = el as HTMLElement | null;
+      while (n && n !== document.documentElement) {
+        const tag = (n.tagName || "").toLowerCase();
+        const role = n.getAttribute("role") || "";
+        const blob = `${n.className || ""} ${n.id || ""}`.toLowerCase();
+        if (tag === "nav" || tag === "aside") return true;
+        if (role === "navigation" || role === "complementary") return true;
+        if (/sidebar|chat-history|history-list|session-list|ds-aside/.test(blob)) return true;
+        n = n.parentElement;
+      }
+      return false;
+    };
+    const clean = (el: Element) => {
+      const clone = el.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll("a, button, [class*='cite'], [class*='ref'], sup, nav, aside").forEach((node) => node.remove());
+      return (clone.innerText || "").replace(/[ \t]{2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+    };
+    const nodes = [...document.querySelectorAll(".ds-markdown, [class*='ds-markdown']")].filter((el) => !isSidebarish(el));
+    const blocks = nodes.map(clean).filter((t) => !bad(t) && t.length >= 1);
+    return blocks.length ? blocks[blocks.length - 1] : "";
+  }, prompt);
 }
 
 export async function sendAndRead(page: Page, question: string): Promise<{ answer: string; waitedMs: number }> {
-  const before = await collectAssistantTexts(page);
+  const before = await extractDeepSeek(page, question);
   const filled = await fillComposer(page, question);
   if (!filled) {
     throw new Error("DeepSeek composer not found (login or blocked page)");
@@ -114,22 +117,24 @@ export async function sendAndRead(page: Page, question: string): Promise<{ answe
 
   const started = Date.now();
   let answer = "";
-  while (Date.now() - started < 40000) {
+  let stable = 0;
+  while (Date.now() - started < 45000) {
     await page.waitForTimeout(1500);
-    const now = await collectAssistantTexts(page);
-    const fresh = now.filter((t) => !before.includes(t) && !t.includes(question));
-    if (fresh.length) {
-      answer = fresh[fresh.length - 1];
-      await page.waitForTimeout(2000);
-      const later = (await collectAssistantTexts(page)).filter((t) => !before.includes(t) && !t.includes(question));
-      if (later.length) answer = later[later.length - 1];
-      break;
+    const now = await extractDeepSeek(page, question);
+    if (now && now !== before && now !== question) {
+      if (now === answer) {
+        stable += 1;
+        if (stable >= 2) break;
+      } else {
+        answer = now;
+        stable = 0;
+      }
     }
   }
 
   if (!answer) {
     const body = excerptFrom(await page.locator("body").innerText().catch(() => ""));
-    throw new Error(`No DeepSeek reply within 40s. Page: ${body}`);
+    throw new Error(`No DeepSeek reply within 45s. Page: ${body}`);
   }
   return { answer, waitedMs: Date.now() - started };
 }

@@ -144,7 +144,7 @@ New path (DeepSeek only):
 - No Local Grok, no `127.0.0.1:8765`, no DeepSeek API key.
 - Login happens in Browserbase **Live View**. Cookies stay in a Browserbase **Context** (`persist: true`). This site only stores the Context **id** in an httpOnly cookie, never DeepSeek cookies.
 - POC buttons: **Open Cloud Chrome**, then **Send hello**.
-- If Browserbase env is missing, the panel says **Not configured**.
+- If Browserbase env is missing, paste `BROWSERBASE_API_KEY` and `BROWSERBASE_PROJECT_ID` on `/grok` and Save. DeepSeek **Send** always calls `/api/grok/bb/ask` and draws `answer` in the thread (it no longer opens a `?q=` tab).
 
 Set on Vercel (or Marketplace integration):
 

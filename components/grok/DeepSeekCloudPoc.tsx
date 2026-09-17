@@ -16,12 +16,13 @@ type AskResult = {
   needLogin?: boolean;
   blocked?: boolean;
   liveUrl?: string | null;
-  url?: string;
   excerpt?: string;
 };
 
 export default function DeepSeekCloudPoc() {
   const [status, setStatus] = useState<Status | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [projectId, setProjectId] = useState("");
   const [busy, setBusy] = useState("");
   const [log, setLog] = useState<string[]>([]);
 
@@ -33,18 +34,44 @@ export default function DeepSeekCloudPoc() {
     const res = await fetch("/api/grok/bb/status", { cache: "no-store" });
     const data = (await res.json()) as Status;
     setStatus(data);
+    return data;
   }
 
   useEffect(() => {
     refresh().catch(() => setStatus({ configured: false, note: "Status check failed" }));
   }, []);
 
+  async function saveKeys() {
+    setBusy("save");
+    try {
+      const res = await fetch("/api/grok/bb/setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiKey, projectId }),
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!data.ok) {
+        push(data.error || "Could not save Browserbase key");
+        return;
+      }
+      setApiKey("");
+      setProjectId("");
+      push("Browserbase saved on this site (httpOnly cookie). Not a DeepSeek API key.");
+      await refresh();
+      window.dispatchEvent(new Event("bb-configured"));
+    } catch (err) {
+      push(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function connect() {
     setBusy("connect");
     push("Creating Cloud Chrome session…");
     try {
       const res = await fetch("/api/grok/bb/connect", { method: "POST" });
-      const data = (await res.json()) as AskResult & { sessionId?: string };
+      const data = (await res.json()) as AskResult;
       if (data.liveUrl) {
         window.open(data.liveUrl, "dash_bb_deepseek");
         push(data.needLogin ? "Opened Cloud Chrome. Log in to DeepSeek there." : "Opened Cloud Chrome. DeepSeek looks logged in.");
@@ -90,17 +117,42 @@ export default function DeepSeekCloudPoc() {
     <section className="bb-poc">
       <div className="bb-poc-head">
         <div>
-          <strong>DeepSeek Cloud Chrome POC</strong>
+          <strong>DeepSeek Cloud Chrome</strong>
           <p>
-            {status
-              ? status.configured
-                ? "Vercel → Browserbase → remote Chrome → chat.deepseek.com. No Local Grok. No API key."
-                : "Browserbase keys are not on this server yet. Add BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID, then retry."
-              : "Checking Browserbase…"}
+            {ready
+              ? "Vercel will type in remote Chrome and return the DeepSeek answer to this page."
+              : "This is a Browserbase key, not a DeepSeek API key. Get it from browserbase.com or the Vercel Marketplace, then Save."}
           </p>
         </div>
         <em className={ready ? "on" : "off"}>{ready ? "Configured" : "Not configured"}</em>
       </div>
+      {!ready && (
+        <form
+          className="bb-poc-keys"
+          onSubmit={(e) => {
+            e.preventDefault();
+            saveKeys();
+          }}
+        >
+          <input
+            type="password"
+            autoComplete="off"
+            placeholder="BROWSERBASE_API_KEY"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+          />
+          <input
+            type="text"
+            autoComplete="off"
+            placeholder="BROWSERBASE_PROJECT_ID"
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+          />
+          <button type="submit" className="add-account" disabled={!apiKey.trim() || !projectId.trim() || Boolean(busy)}>
+            {busy === "save" ? "Saving…" : "Save"}
+          </button>
+        </form>
+      )}
       <div className="bb-poc-actions">
         <button type="button" className="add-account" disabled={!ready || Boolean(busy)} onClick={connect}>
           {busy === "connect" ? "Opening…" : "1. Open Cloud Chrome"}
@@ -109,9 +161,7 @@ export default function DeepSeekCloudPoc() {
           {busy === "hello" ? "Sending…" : "2. Send hello"}
         </button>
       </div>
-      {log.length > 0 && (
-        <pre className="bb-poc-log">{log.join("\n")}</pre>
-      )}
+      {log.length > 0 && <pre className="bb-poc-log">{log.join("\n")}</pre>}
     </section>
   );
 }

@@ -367,6 +367,22 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
 .bb-poc-head em { font-style: normal; font-size: 12px; }
 .bb-poc-head em.on { color: var(--accent); }
 .bb-poc-head em.off { color: var(--danger); }
+.bb-poc-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.bb-poc-keys input {
+  flex: 1;
+  min-width: 180px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
 .bb-poc-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .bb-poc-log {
   margin: 12px 0 0;

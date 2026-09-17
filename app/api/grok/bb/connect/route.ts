@@ -17,7 +17,7 @@ export const maxDuration = 60;
 export async function POST() {
   if (!bbConfigured()) {
     return NextResponse.json(
-      { ok: false, configured: false, error: "BROWSERBASE_API_KEY is missing" },
+      { ok: false, configured: false, error: "Save the Browserbase key above first, then Connect." },
       { status: 503 }
     );
   }

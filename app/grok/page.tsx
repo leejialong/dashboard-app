@@ -9,7 +9,7 @@ export default function GrokPage() {
           <img src="/dashboard-icon.png" alt="" width={40} height={40} className="brand-icon" />
           <div>
             <h1>Grok</h1>
-            <p>DeepSeek POC uses Cloud Chrome. Other bots still use the site tab.</p>
+            <p>DeepSeek Send asks Cloud Chrome and shows the answer here.</p>
           </div>
         </div>
         <a className="add-account" href="/">Back to mail</a>
