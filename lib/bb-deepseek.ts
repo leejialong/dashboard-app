@@ -31,24 +31,52 @@ export async function connectCdp(connectUrl: string): Promise<{ browser: Browser
 }
 
 export async function openDeepSeek(page: Page): Promise<void> {
+  await dismissNoise(page);
   if (!page.url().includes("chat.deepseek.com")) {
     await page.goto(DS_URL, { waitUntil: "domcontentloaded", timeout: 45000 });
+    await dismissNoise(page);
   }
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(800);
+}
+
+async function dismissNoise(page: Page): Promise<void> {
+  const labels = [/accept all cookies/i, /accept all/i, /got it/i];
+  for (const name of labels) {
+    const btn = page.getByRole("button", { name });
+    if ((await btn.count().catch(() => 0)) > 0) {
+      await btn.first().click({ timeout: 1500 }).catch(() => undefined);
+    }
+  }
+}
+
+async function hasChatComposer(page: Page): Promise<boolean> {
+  const ta = page.locator("textarea");
+  if ((await ta.count().catch(() => 0)) === 0) return false;
+  const last = ta.last();
+  const visible = await last.isVisible().catch(() => false);
+  if (!visible) return false;
+  const ph = ((await last.getAttribute("placeholder").catch(() => "")) || "").toLowerCase();
+  if (/message|ask|deepseek|prompt/.test(ph)) return true;
+  const password = page.locator('input[type="password"]');
+  const passwordVisible = (await password.count()) > 0 && (await password.first().isVisible().catch(() => false));
+  return !passwordVisible;
 }
 
 export async function probeDeepSeek(page: Page): Promise<DsProbe> {
+  await dismissNoise(page);
   const url = page.url();
   const title = await page.title().catch(() => "");
   const body = await page.locator("body").innerText().catch(() => "");
   const lower = `${url} ${title} ${body}`.toLowerCase();
-  const blocked = BLOCK_HINTS.some((h) => lower.includes(h)) || url.includes("403");
-  const loginPage = /sign_in|login|signin/.test(url) || /log in|sign in/.test(lower);
-  const hasComposer = (await page.locator("textarea").count().catch(() => 0)) > 0;
+  const blocked = BLOCK_HINTS.some((h) => lower.includes(h));
+  const composer = await hasChatComposer(page);
+  const passwordVisible =
+    (await page.locator('input[type="password"]').count()) > 0 &&
+    (await page.locator('input[type="password"]').first().isVisible().catch(() => false));
   return {
     url,
     title,
-    loggedIn: !blocked && !loginPage && hasComposer,
+    loggedIn: !blocked && composer && !passwordVisible,
     blocked,
     excerpt: excerptFrom(body),
   };

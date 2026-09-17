@@ -84,12 +84,17 @@ export default function GrokChat() {
       } catch {
         data = { error: raw || `Server returned HTTP ${res.status} with no JSON` };
       }
-      if (data.liveUrl) window.open(data.liveUrl, "dash_bb_deepseek");
+      if (data.liveUrl && data.needLogin) window.open(data.liveUrl, "dash_bb_deepseek");
       setHist((prev) => ({
         ...prev,
         [target.id]: [
           ...(prev[target.id] || []),
-          { role: "bot", text: data.error || "Cloud Chrome is open. Log in to DeepSeek there, then Send. The answer comes back here." },
+          {
+            role: "bot",
+            text: data.needLogin
+              ? "Cloud Chrome is open. Log in to DeepSeek once. Later Sends reuse that login and return the answer here."
+              : data.error || "Already logged in on Cloud Chrome. Send to get the answer here.",
+          },
         ],
       }));
       return;
@@ -216,7 +221,7 @@ export default function GrokChat() {
             <p>
               {isDeepSeek
                 ? cloudReady
-                  ? "Online. Send types in Cloud Chrome and shows the DeepSeek answer here."
+                  ? "Online. Log in once in Cloud Chrome. Later Sends reuse that login and show the answer here."
                   : "Offline. Save the Browserbase key above, Connect once to log in, then Send."
                 : isOn
                   ? "Online. Send reuses the same tab with your exact prompt."

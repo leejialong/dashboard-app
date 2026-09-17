@@ -76,7 +76,7 @@ export async function POST(req: Request) {
           url: probe.url,
           title: probe.title,
           excerpt: probe.excerpt,
-          error: "Log in inside Cloud Chrome, then Send again",
+          error: "Log in once inside Cloud Chrome. Later Sends reuse that login.",
         });
       }
 

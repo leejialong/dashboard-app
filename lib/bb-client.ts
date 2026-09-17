@@ -55,7 +55,7 @@ export function writeSessionId(id: string) {
     ...COOKIE_BASE,
     name: BB_SID_COOKIE,
     value: id,
-    maxAge: 60 * 10,
+    maxAge: 60 * 60 * 6,
   });
 }
 
@@ -88,14 +88,32 @@ export function clearBrowserbaseCreds() {
   cookies().set({ ...COOKIE_BASE, name: BB_PROJ_COOKIE, value: "", maxAge: 0 });
 }
 
+const CONTEXT_NAME = "dash-grok-deepseek";
+
 export async function ensureContextId(bb: Browserbase): Promise<string> {
   const existing = readContextId();
-  if (existing) return existing;
+  if (existing) {
+    try {
+      await bb.contexts.retrieve(existing);
+      return existing;
+    } catch {
+      /* recreate */
+    }
+  }
 
   const projectId = bbProjectId();
-  const created = await bb.contexts.create(projectId ? { projectId } : {});
-  writeContextId(created.id);
-  return created.id;
+  try {
+    const created = await bb.contexts.create({
+      ...(projectId ? { projectId } : {}),
+      name: CONTEXT_NAME,
+    });
+    writeContextId(created.id);
+    return created.id;
+  } catch {
+    const created = await bb.contexts.create(projectId ? { projectId } : {});
+    writeContextId(created.id);
+    return created.id;
+  }
 }
 
 export function sessionCreateParams(contextId: string, keepAlive: boolean) {
@@ -103,7 +121,8 @@ export function sessionCreateParams(contextId: string, keepAlive: boolean) {
   return {
     ...(projectId ? { projectId } : {}),
     keepAlive,
-    timeout: keepAlive ? 600 : 180,
+    timeout: keepAlive ? 21600 : 180,
+    userMetadata: { app: "dash-grok", bot: "deepseek" },
     browserSettings: {
       solveCaptchas: true,
       recordSession: false,
@@ -137,11 +156,35 @@ export async function liveViewUrl(bb: Browserbase, sessionId: string): Promise<s
 }
 
 export async function reuseRunningSession(bb: Browserbase, sessionId: string | undefined) {
+  const fromCookie = await sessionIfRunning(bb, sessionId);
+  if (fromCookie) return fromCookie;
+
+  try {
+    const listed = await bb.sessions.list({ status: "RUNNING" });
+    const rows = Array.isArray(listed)
+      ? listed
+      : Array.isArray((listed as { data?: unknown }).data)
+        ? ((listed as { data: { id: string }[] }).data)
+        : [];
+    for (const row of rows) {
+      const meta = (row as { userMetadata?: { app?: string } }).userMetadata;
+      const found = await sessionIfRunning(bb, row.id);
+      if (found && (!meta || meta.app === "dash-grok")) return found;
+    }
+  } catch {
+    /* list not available */
+  }
+  return null;
+}
+
+async function sessionIfRunning(bb: Browserbase, sessionId: string | undefined) {
   if (!sessionId) return null;
   try {
     const session = await bb.sessions.retrieve(sessionId);
     const status = String((session as { status?: string }).status || "").toUpperCase();
-    const connectUrl = (session as { connectUrl?: string }).connectUrl;
+    const connectUrl =
+      (session as { connectUrl?: string }).connectUrl ||
+      (await bb.sessions.debug(session.id).then((d) => d.wsUrl).catch(() => ""));
     if (status === "RUNNING" && connectUrl) {
       return { id: session.id, connectUrl };
     }
