@@ -10,7 +10,7 @@ export async function GET() {
     hasContext: Boolean(readContextId()),
     hasSession: Boolean(readSessionId()),
     note: bbConfigured()
-      ? "Browserbase is configured. Connect opens Cloud Chrome for DeepSeek login."
+      ? "Browserbase is configured. Connect opens Cloud Chrome; Online is per-bot after a real login probe."
       : "Set BROWSERBASE_API_KEY and BROWSERBASE_PROJECT_ID (Vercel Marketplace or env).",
   });
 }

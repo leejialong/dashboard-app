@@ -10,6 +10,23 @@ const BLOCK_HINTS = [
   "cloudfront",
 ];
 
+const LOGIN_URL_HINTS = [
+  "/login",
+  "/auth",
+  "signin",
+  "sign-in",
+  "signup",
+  "sign-up",
+  "accounts.google.com",
+];
+const LOGIN_BODY_HINTS = [
+  "log in",
+  "sign in",
+  "sign up for free",
+  "continue with google",
+  "continue with github",
+];
+
 export type DsProbe = {
   url: string;
   title: string;
@@ -24,6 +41,33 @@ export type DsMedia = { kind: "image" | "file"; url: string; name?: string };
 
 function excerptFrom(text: string): string {
   return text.replace(/\s+/g, " ").trim().slice(0, 400);
+}
+
+/** Strip hidden citation/TOC digit spans and other noise from answer HTML/text. */
+export function sanitizeAnswer(raw: string): string {
+  if (!raw) return "";
+  let s = raw;
+  // Remove elements/spans that are visually hidden (opacity:0) or absolute-positioned citation digits.
+  s = s.replace(
+    /<(?:span|div|sup|a)[^>]*(?:opacity\s*:\s*0|opacity:\s*0)[^>]*>[\s\S]*?<\/(?:span|div|sup|a)>/gi,
+    ""
+  );
+  s = s.replace(
+    /<(?:span|div|sup|a)[^>]*(?:position\s*:\s*absolute|position:\s*absolute)[^>]*>\s*\d{1,3}\s*<\/(?:span|div|sup|a)>/gi,
+    ""
+  );
+  // Style attributes that hide content — strip the whole tag content when it's just digits.
+  s = s.replace(
+    /<[^>]+style=["'][^"']*(?:opacity\s*:\s*0|position\s*:\s*absolute)[^"']*["'][^>]*>\s*\d{0,3}\s*<\/[^>]+>/gi,
+    ""
+  );
+  // Bare absolute/opacity-0 wrappers left as empty tags.
+  s = s.replace(/<(?:span|div)\b[^>]*(?:opacity\s*:\s*0|position\s*:\s*absolute)[^>]*\/?\s*>/gi, "");
+  // Collapse leftover empty noise and whitespace.
+  s = s.replace(/(?:&nbsp;|\u00a0)+/g, " ");
+  s = s.replace(/\n{3,}/g, "\n\n");
+  s = s.replace(/[ \t]+\n/g, "\n");
+  return s.trim();
 }
 
 export async function connectCdp(connectUrl: string): Promise<{ browser: Browser; page: Page }> {
@@ -91,6 +135,13 @@ async function hasChatComposer(page: Page, spec: CloudBotSpec): Promise<boolean>
   return false;
 }
 
+function looksLikeLoginWall(url: string, title: string, body: string): boolean {
+  const u = (url || "").toLowerCase();
+  if (LOGIN_URL_HINTS.some((h) => u.includes(h))) return true;
+  const blob = `${title || ""} ${body || ""}`.toLowerCase();
+  return LOGIN_BODY_HINTS.some((h) => blob.includes(h));
+}
+
 export async function probeBot(page: Page, botId: CloudBotId): Promise<DsProbe> {
   const spec = cloudBot(botId);
   const composer = await hasChatComposer(page, spec);
@@ -98,17 +149,25 @@ export async function probeBot(page: Page, botId: CloudBotId): Promise<DsProbe> 
     (await page.locator('input[type="password"]').count()) > 0 &&
     (await page.locator('input[type="password"]').first().isVisible().catch(() => false));
   const url = page.url();
+  const urlLooksAuth = LOGIN_URL_HINTS.some((h) => url.toLowerCase().includes(h));
+  // Visible auth CTAs beat a lonely composer on marketing/login shells (esp. Gemini/ChatGPT).
+  const authCta = page.getByRole("button", { name: /^(log\s*in|sign\s*in|sign\s*up|continue with google)/i });
+  const authLink = page.getByRole("link", { name: /^(log\s*in|sign\s*in|sign\s*up)/i });
+  const authCtaVisible =
+    ((await authCta.count().catch(() => 0)) > 0 && (await authCta.first().isVisible().catch(() => false))) ||
+    ((await authLink.count().catch(() => 0)) > 0 && (await authLink.first().isVisible().catch(() => false)));
+  const title = await page.title().catch(() => "");
   let excerpt = "";
-  let title = "";
-  if (!composer) {
-    title = await page.title().catch(() => "");
+  if (!composer || urlLooksAuth || passwordVisible || authCtaVisible) {
     excerpt = excerptFrom(await page.locator("body").innerText().catch(() => ""));
   }
   const blocked = BLOCK_HINTS.some((h) => `${url} ${title} ${excerpt}`.toLowerCase().includes(h));
+  const loginWall = urlLooksAuth || looksLikeLoginWall(url, title, excerpt) || authCtaVisible;
+  const loggedIn = !blocked && composer && !passwordVisible && !loginWall;
   return {
     url,
     title,
-    loggedIn: !blocked && composer && !passwordVisible,
+    loggedIn,
     blocked,
     excerpt,
   };
@@ -194,6 +253,14 @@ function collectScript() {
     };
     const clean = (el: Element) => {
       const clone = el.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll("*").forEach((node) => {
+        const h = node as HTMLElement;
+        const st = (h.getAttribute("style") || "").toLowerCase();
+        if (/opacity\s*:\s*0/.test(st) || /position\s*:\s*absolute/.test(st)) {
+          const txt = (h.textContent || "").trim();
+          if (!txt || /^\d{1,3}$/.test(txt)) node.remove();
+        }
+      });
       clone.querySelectorAll(
         "button, script, style, [class*='cite'], [class*='fingerprint'], sup, nav, aside, [class*='toolbar'], [class*='code-header']"
       ).forEach((node) => node.remove());
@@ -215,9 +282,19 @@ async function collectBlocks(page: Page, prompt: string, spec: CloudBotSpec): Pr
 }
 
 function diffBlocks(before: string[], after: string[]): string {
-  let i = 0;
-  while (i < before.length && i < after.length && before[i] === after[i]) i += 1;
-  return after.slice(i).join("\n\n").trim();
+  // Prefer truly appended blocks so citation-junk edits to old turns cannot join the thread.
+  if (after.length > before.length) {
+    const added = after.slice(before.length).filter(Boolean);
+    return (added[added.length - 1] || "").trim();
+  }
+  if (
+    after.length > 0 &&
+    after.length === before.length &&
+    after[after.length - 1] !== before[before.length - 1]
+  ) {
+    return (after[after.length - 1] || "").trim();
+  }
+  return "";
 }
 
 async function collectMedia(page: Page): Promise<DsMedia[]> {
@@ -280,6 +357,14 @@ async function extractReply(page: Page, question: string, spec: CloudBotSpec): P
     const inComposer = (el: Element | null) => Boolean(el?.closest("textarea, form, [contenteditable='true']"));
     const clean = (el: Element) => {
       const clone = el.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll("*").forEach((node) => {
+        const h = node as HTMLElement;
+        const st = (h.getAttribute("style") || "").toLowerCase();
+        if (/opacity\s*:\s*0/.test(st) || /position\s*:\s*absolute/.test(st)) {
+          const txt = (h.textContent || "").trim();
+          if (!txt || /^\d{1,3}$/.test(txt)) node.remove();
+        }
+      });
       clone.querySelectorAll(
         "button, script, style, [class*='cite'], [class*='fingerprint'], sup, nav, aside, [class*='toolbar'], [class*='code-header']"
       ).forEach((node) => node.remove());
@@ -304,8 +389,11 @@ async function extractReply(page: Page, question: string, spec: CloudBotSpec): P
           const pos = userEl.compareDocumentPosition(el);
           return Boolean(pos & Node.DOCUMENT_POSITION_FOLLOWING);
         });
-        const text = after.map(clean).filter((t) => t && t !== prompt).join("\n\n").trim();
-        if (text) return text;
+        // Only the LAST assistant block after the user turn — never join the whole thread.
+        for (let i = after.length - 1; i >= 0; i -= 1) {
+          const text = clean(after[i]);
+          if (text && text !== prompt) return text;
+        }
       }
     }
     return "";
@@ -333,9 +421,10 @@ async function waitForAnswer(
   let stable = 0;
   while (Date.now() < stopAt) {
     await page.waitForTimeout(400);
-    const fromPrompt = await extractReply(page, question, spec);
     const fromDiff = diffBlocks(before, await collectBlocks(page, question, spec));
-    const now = fromPrompt || fromDiff;
+    const fromPrompt = await extractReply(page, question, spec);
+    // Prefer new blocks since before[] over extractReply (avoids old-thread pollution).
+    const now = sanitizeAnswer(fromDiff || fromPrompt);
     if (now) {
       if (now === answer) {
         stable += 1;
@@ -350,7 +439,7 @@ async function waitForAnswer(
   const streaming = await stillStreaming(page, spec);
   const truncated = Date.now() >= stopAt && (streaming || !answer);
   const media = answer ? await collectMedia(page) : [];
-  return { answer, media, waitedMs: Date.now() - started, truncated, streaming };
+  return { answer: sanitizeAnswer(answer), media, waitedMs: Date.now() - started, truncated, streaming };
 }
 
 export async function sendAndRead(
@@ -384,7 +473,7 @@ export async function readLatest(
 ): Promise<WaitResult> {
   const spec = cloudBot(botId);
   const before = await collectBlocks(page, question, spec);
-  const existing = await extractReply(page, question, spec);
+  const existing = sanitizeAnswer(await extractReply(page, question, spec));
   if (existing && !(await stillStreaming(page, spec))) {
     onDelta?.(existing);
     return {

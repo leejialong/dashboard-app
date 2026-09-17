@@ -7,6 +7,9 @@ import { downloadTextFile, formatBotHtml, splitHtmlReply } from "@/lib/grok-form
 type Media = { kind?: string; url: string; name?: string };
 type Msg = { role: "user" | "bot"; text: string; media?: Media[] };
 
+/** Per-bot live status — never mark all Online just because BB key is configured. */
+type BotLiveStatus = "unknown" | "online" | "needLogin";
+
 const BOTS_OPEN = "dash_grok_bots_open";
 
 type AskPayload = {
@@ -22,11 +25,18 @@ type AskPayload = {
   streaming?: boolean;
 };
 
+function statusLabel(status: BotLiveStatus): string {
+  if (status === "online") return "Online";
+  if (status === "needLogin") return "Need login";
+  return "Offline";
+}
+
 export default function GrokChat() {
   const [botId, setBotId] = useState(GROK_BOTS[0].id);
   const [draft, setDraft] = useState("");
   const [hist, setHist] = useState<Record<string, Msg[]>>({});
   const [cloudReady, setCloudReady] = useState(false);
+  const [botStatus, setBotStatus] = useState<Record<string, BotLiveStatus>>({});
   const [sending, setSending] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -34,6 +44,7 @@ export default function GrokChat() {
 
   const bot = useMemo(() => GROK_BOTS.find((b) => b.id === botId) || GROK_BOTS[0], [botId]);
   const messages = hist[botId] || [];
+  const currentStatus: BotLiveStatus = botStatus[botId] || "unknown";
 
   useEffect(() => {
     try {
@@ -48,6 +59,10 @@ export default function GrokChat() {
     window.addEventListener("bb-configured", onReady);
     return () => window.removeEventListener("bb-configured", onReady);
   }, []);
+
+  function markBot(id: string, status: BotLiveStatus) {
+    setBotStatus((prev) => (prev[id] === status ? prev : { ...prev, [id]: status }));
+  }
 
   function addFiles(list: File[]) {
     if (!list.length) return;
@@ -98,7 +113,13 @@ export default function GrokChat() {
     } catch {
       data = { error: raw || `Server returned HTTP ${res.status} with no JSON` };
     }
-    if (data.liveUrl && data.needLogin) window.open(data.liveUrl, "dash_bb_cloud");
+    // Always open liveUrl when present so Connect/Chrome can reach the session.
+    if (data.liveUrl) window.open(data.liveUrl, "dash_bb_cloud");
+    if (data.needLogin) {
+      markBot(target.id, "needLogin");
+    } else if (!data.error) {
+      markBot(target.id, "online");
+    }
     setHist((prev) => ({
       ...prev,
       [target.id]: [
@@ -129,11 +150,18 @@ export default function GrokChat() {
         continue;
       }
       if (data.needLogin) {
+        markBot(botKey, "needLogin");
         apply(data.error || "Log in once inside Cloud Chrome.");
         return;
       }
-      if (data.answer) apply(data.answer, data.media);
-      if (data.ok && data.answer && !data.truncated && !data.streaming) return;
+      if (data.answer) {
+        markBot(botKey, "online");
+        apply(data.answer, data.media);
+      }
+      if (data.ok && data.answer && !data.truncated && !data.streaming) {
+        markBot(botKey, "online");
+        return;
+      }
     }
     apply("Cloud Chrome finished, but this page stopped before the full reply. Open Cloud Chrome to read it, then Send a short follow-up.");
   }
@@ -175,11 +203,21 @@ export default function GrokChat() {
           data = { error: raw || `HTTP ${res.status}` };
         }
         if (data.liveUrl && !data.ok) window.open(data.liveUrl, "dash_bb_cloud");
+        if (data.needLogin) {
+          markBot(targetId, "needLogin");
+          apply(data.error || "Log in once inside Cloud Chrome.");
+          return;
+        }
         if (shouldPoll(data) && !data.needLogin) {
           await pollCloud(targetId, question || userLine, apply);
           return;
         }
-        apply(data.ok && data.answer ? data.answer : data.error || "No reply");
+        if (data.ok && data.answer) {
+          markBot(targetId, "online");
+          apply(data.answer);
+        } else {
+          apply(data.error || "No reply");
+        }
         return;
       }
 
@@ -213,6 +251,7 @@ export default function GrokChat() {
             if (data.liveUrl && !data.ok) window.open(data.liveUrl, "dash_bb_cloud");
             if (data.configured === false) setCloudReady(false);
             if (data.needLogin) {
+              markBot(targetId, "needLogin");
               apply(data.error || "Log in once inside Cloud Chrome.");
               return;
             }
@@ -220,12 +259,21 @@ export default function GrokChat() {
               await pollCloud(targetId, question || userLine, apply);
               return;
             }
-            apply(data.ok && data.answer ? data.answer : data.error || "No reply", data.media);
+            if (data.ok && data.answer) {
+              markBot(targetId, "online");
+              apply(data.answer, data.media);
+            } else {
+              apply(data.error || "No reply", data.media);
+            }
           }
         }
       }
       if (shouldPoll(last) && !last.needLogin) {
         await pollCloud(targetId, question || userLine, apply);
+      } else if (last.ok && last.answer && !last.needLogin) {
+        markBot(targetId, "online");
+      } else if (last.needLogin) {
+        markBot(targetId, "needLogin");
       }
     } catch {
       apply("Connection dropped. Checking Cloud Chrome for the reply…");
@@ -242,11 +290,13 @@ export default function GrokChat() {
     await askCloud(botId, question, files);
   }
 
+  const onlineCount = GROK_BOTS.filter((b) => botStatus[b.id] === "online").length;
+
   return (
     <div className={`grok-shell${botsOpen ? "" : " bots-min"}`}>
       <aside className="grok-side">
         <div className="grok-side-head">
-          <span className="grok-side-label">Bots · {cloudReady ? GROK_BOTS.length : 0} connected</span>
+          <span className="grok-side-label">Bots · {onlineCount} connected</span>
           <button
             type="button"
             className="grok-side-toggle"
@@ -266,19 +316,21 @@ export default function GrokChat() {
           </button>
         </div>
         {GROK_BOTS.map((b) => {
-          const on = cloudReady;
+          const st: BotLiveStatus = botStatus[b.id] || "unknown";
+          const on = st === "online";
+          const label = statusLabel(st);
           return (
             <button
               key={b.id}
               className={`grok-bot ${b.id === botId ? "active" : ""}`}
               onClick={() => setBotId(b.id)}
               type="button"
-              title={`${b.name} · ${on ? "Online" : "Offline"}`}
+              title={`${b.name} · ${label}`}
             >
               <span className="grok-ava" style={{ background: b.color }}>{b.initials}</span>
               <span className="grok-bot-meta">
                 <strong>{b.name}</strong>
-                <em className={on ? "on" : "off"}>{on ? "Online" : "Offline"}</em>
+                <em className={on ? "on" : "off"}>{label}</em>
               </span>
             </button>
           );
@@ -307,10 +359,22 @@ export default function GrokChat() {
         <header className="grok-top">
           <div className="grok-top-copy">
             <h2>{bot.name}</h2>
-            <p title={cloudReady
-              ? `Online. Log in once in Cloud Chrome to ${bot.name}. Later Sends reuse that login and show the answer here.`
-              : "Offline. Save the Browserbase key if asked, Connect once to log in, then Send."}>
-              {cloudReady ? "Online · Cloud Chrome" : "Offline"}
+            <p title={
+              currentStatus === "online"
+                ? `Online. Log in once in Cloud Chrome to ${bot.name}. Later Sends reuse that login and show the answer here.`
+                : currentStatus === "needLogin"
+                  ? `Need login. Open Cloud Chrome and sign in to ${bot.name}.`
+                  : cloudReady
+                    ? `Offline until ${bot.name} is probed or a Send succeeds. Connect opens Cloud Chrome.`
+                    : "Offline. Save the Browserbase key if asked, Connect once to log in, then Send."
+            }>
+              {currentStatus === "online"
+                ? "Online · Cloud Chrome"
+                : currentStatus === "needLogin"
+                  ? "Need login · Cloud Chrome"
+                  : cloudReady
+                    ? "Offline · key ready"
+                    : "Offline"}
             </p>
           </div>
           {cloudReady ? (
