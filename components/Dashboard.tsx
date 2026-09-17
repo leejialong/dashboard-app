@@ -206,6 +206,7 @@ export default function Dashboard({ initialAccounts, initialEmails }: DashboardP
           </p>
           </div>
         </div>
+        <a className="add-account" href="/grok">Grok</a>
       </header>
 
       <div className="panels">
