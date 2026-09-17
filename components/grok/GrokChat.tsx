@@ -1,95 +1,101 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { GROK_BOTS, grokPromptUrl, type GrokBot } from "@/lib/grok-bots";
+import { GROK_BOTS, type GrokBot } from "@/lib/grok-bots";
 
 type Msg = { role: "user" | "bot"; text: string };
-type Connected = Record<string, boolean>;
-
-const STORE = "dash_grok_connected";
-
-function loadConnected(): Connected {
-  try {
-    const raw = localStorage.getItem(STORE);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
 
 export default function GrokChat() {
   const [botId, setBotId] = useState(GROK_BOTS[0].id);
   const [draft, setDraft] = useState("");
-  const [connected, setConnected] = useState<Connected>({});
-  const [hist, setHist] = useState<Msg[]>([]);
+  const [apiKey, setApiKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [online, setOnline] = useState<Record<string, boolean>>({});
+  const [hist, setHist] = useState<Record<string, Msg[]>>({});
 
   const bot = useMemo(() => GROK_BOTS.find((b) => b.id === botId) || GROK_BOTS[0], [botId]);
-  const onlineCount = GROK_BOTS.filter((b) => connected[b.id]).length;
+  const messages = hist[botId] || [];
+  const isOn = !!online[botId];
+
+  async function refreshStatus() {
+    const res = await fetch("/api/grok/status", { cache: "no-store" });
+    const data = await res.json();
+    setOnline(data.bots || {});
+  }
 
   useEffect(() => {
-    setConnected(loadConnected());
+    refreshStatus().catch(() => undefined);
   }, []);
 
-  function persist(next: Connected) {
-    setConnected(next);
-    localStorage.setItem(STORE, JSON.stringify(next));
-  }
-
-  function connect(target: GrokBot) {
+  async function connect(target: GrokBot) {
     window.open(target.connectUrl, "_blank", "noopener,noreferrer");
-    persist({ ...connected, [target.id]: true });
   }
 
-  function disconnect(target: GrokBot) {
-    persist({ ...connected, [target.id]: false });
+  async function saveKey() {
+    const key = apiKey.trim();
+    if (!key) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/grok/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bot: botId, apiKey: key }),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || "save failed");
+      setApiKey("");
+      await refreshStatus();
+    } finally {
+      setBusy(false);
+    }
   }
 
-  function send() {
+  async function disconnect() {
+    setBusy(true);
+    try {
+      await fetch("/api/grok/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bot: botId, disconnect: true }),
+      });
+      await refreshStatus();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function send() {
     const question = draft.trim();
-    if (!question) return;
-    const targets = GROK_BOTS.filter((b) => connected[b.id]);
-    if (targets.length === 0) {
-      setHist((prev) => [
-        ...prev,
-        { role: "user", text: question },
-        { role: "bot", text: "All bots are Offline. Click Connect to open DeepSeek / ChatGPT / Claude / Gemini in a new tab, then Send again." },
-      ]);
-      setDraft("");
-      return;
-    }
-
-    const opened: string[] = [];
-    const blocked: string[] = [];
-    for (const target of targets) {
-      const popup = window.open(grokPromptUrl(target, question), "_blank", "noopener,noreferrer");
-      if (popup) opened.push(target.name);
-      else blocked.push(target.name);
-    }
-
-    setHist((prev) => [
-      ...prev,
-      { role: "user", text: question },
-      {
-        role: "bot",
-        text: [
-          opened.length ? `Opened with your exact prompt: ${opened.join(", ")}.` : "",
-          blocked.length ? `Popup blocked for: ${blocked.join(", ")}. Allow popups for this site, then Send again.` : "",
-        ]
-          .filter(Boolean)
-          .join(" "),
-      },
-    ]);
+    if (!question || busy) return;
     setDraft("");
+    const nextHist = [...messages, { role: "user" as const, text: question }];
+    setHist((prev) => ({ ...prev, [botId]: nextHist }));
+    setBusy(true);
+    try {
+      const res = await fetch("/api/grok/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bot: botId, question, history: messages }),
+      });
+      const data = await res.json();
+      const text = data.ok ? String(data.text) : String(data.error || "No reply");
+      setHist((prev) => ({ ...prev, [botId]: [...(prev[botId] || nextHist), { role: "bot", text }] }));
+    } catch (err) {
+      setHist((prev) => ({
+        ...prev,
+        [botId]: [...(prev[botId] || nextHist), { role: "bot", text: err instanceof Error ? err.message : "network_error" }],
+      }));
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <div className="grok-shell">
       <aside className="grok-side">
-        <div className="grok-side-head">Bots · {onlineCount} connected</div>
+        <div className="grok-side-head">Bots · {GROK_BOTS.filter((b) => online[b.id]).length} online</div>
         {GROK_BOTS.map((b) => {
-          const on = !!connected[b.id];
+          const on = !!online[b.id];
           return (
             <button
               key={b.id}
@@ -111,26 +117,40 @@ export default function GrokChat() {
           <div>
             <h2>{bot.name}</h2>
             <p>
-              {connected[bot.id]
-                ? "Online. Send uses the exact same text in a new tab."
-                : "Offline. Connect opens this product in a new tab (log in there if asked)."}
+              {isOn
+                ? "Online. Send stays on this page and shows the reply here."
+                : "Offline. Connect opens the key page. Paste the key once, then chat here."}
             </p>
           </div>
-          {connected[bot.id] ? (
-            <button type="button" className="add-account" onClick={() => disconnect(bot)}>Disconnect</button>
+          {isOn ? (
+            <button type="button" className="add-account" onClick={disconnect}>Disconnect</button>
           ) : (
             <button type="button" className="add-account" onClick={() => connect(bot)}>Connect</button>
           )}
         </header>
+        {!isOn && (
+          <div className="grok-keybar">
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={`${bot.name} API key`}
+            />
+            <button type="button" className="add-account" onClick={saveKey} disabled={busy || !apiKey.trim()}>
+              Save key
+            </button>
+          </div>
+        )}
         <div className="grok-thread">
-          {hist.length === 0 && (
+          {messages.length === 0 && (
             <div className="empty-state">
-              Connect the bots you want, then type once. Send opens each connected site with the same prompt.
+              {isOn ? `Ask ${bot.name}. The answer stays in this chat.` : `Connect ${bot.name} first.`}
             </div>
           )}
-          {hist.map((m, i) => (
+          {messages.map((m, i) => (
             <div key={i} className={`grok-bubble ${m.role}`}>{m.text}</div>
           ))}
+          {busy && <div className="grok-bubble bot">Thinking…</div>}
         </div>
         <form
           className="grok-composer"
@@ -148,10 +168,10 @@ export default function GrokChat() {
                 send();
               }
             }}
-            placeholder="Same prompt goes to every connected bot…"
+            placeholder={isOn ? `Message ${bot.name}…` : `${bot.name} is Offline`}
             rows={2}
           />
-          <button type="submit" disabled={!draft.trim()}>Send</button>
+          <button type="submit" disabled={busy || !draft.trim() || !isOn}>Send</button>
         </form>
       </section>
     </div>

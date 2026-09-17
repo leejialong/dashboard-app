@@ -415,6 +415,22 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
 }
 .grok-top h2 { margin: 0 0 4px; font-size: 16px; }
 .grok-top p { margin: 0; color: var(--muted); font-size: 12px; }
+.grok-keybar {
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.grok-keybar input {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
 .grok-thread { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
 .grok-bubble { max-width: 80%; padding: 10px 12px; border-radius: 12px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .grok-bubble.user { align-self: flex-end; background: var(--accent-dim); color: var(--accent); }

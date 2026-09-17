@@ -8,7 +8,7 @@ export default function GrokPage() {
           <img src="/dashboard-icon.png" alt="" width={40} height={40} className="brand-icon" />
           <div>
             <h1>Grok</h1>
-            <p>Offline until you Connect. Send opens the same prompt in new tabs.</p>
+            <p>Online bots answer on this page. No extra tab after you connect.</p>
           </div>
         </div>
         <a className="add-account" href="/">Back to mail</a>
