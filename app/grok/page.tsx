@@ -8,7 +8,7 @@ export default function GrokPage() {
           <img src="/dashboard-icon.png" alt="" width={40} height={40} className="brand-icon" />
           <div>
             <h1>Grok</h1>
-            <p>Concept port of Local Grok — sidebar bots + one chat thread</p>
+            <p>Server-side chat page — use it in the browser only</p>
           </div>
         </div>
         <a className="add-account" href="/">Back to mail</a>

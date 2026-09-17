@@ -1,27 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { GROK_BOTS } from "@/lib/grok-bots";
 
 type Msg = { role: "user" | "bot"; text: string };
-type Health = { mode: string; local_grok: { ask_daemon_READY?: boolean } | null };
 
 export default function GrokChat() {
   const [botId, setBotId] = useState(GROK_BOTS[0].id);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
-  const [health, setHealth] = useState<Health | null>(null);
   const [hist, setHist] = useState<Record<string, Msg[]>>({});
 
   const bot = useMemo(() => GROK_BOTS.find((b) => b.id === botId) || GROK_BOTS[0], [botId]);
   const messages = hist[botId] || [];
-
-  useEffect(() => {
-    fetch("/api/grok/health", { cache: "no-store" })
-      .then((r) => r.json())
-      .then(setHealth)
-      .catch(() => setHealth({ mode: "concept", local_grok: null }));
-  }, []);
 
   async function send() {
     const question = draft.trim();
@@ -71,11 +62,7 @@ export default function GrokChat() {
         <header className="grok-top">
           <div>
             <h2>{bot.name}</h2>
-            <p>
-              {health?.mode === "local-proxy-available"
-                ? `Local Grok up${health.local_grok?.ask_daemon_READY ? " · daemon READY" : ""} · concept replies (live ask off)`
-                : "Concept mode · Local Grok not reachable from this server"}
-            </p>
+            <p>Runs on this website. No local app to open. Demo bot replies for now.</p>
           </div>
         </header>
         <div className="grok-thread">
