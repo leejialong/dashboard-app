@@ -38,6 +38,16 @@ export function sanitizeHtml(html: string): string {
   const root = doc.getElementById("grok-root");
   if (!root) return "";
 
+  // Drop hidden TOC/citation digits before style attrs are stripped (which would un-hide them).
+  root.querySelectorAll("span, div, sup, a").forEach((node) => {
+    const el = node as HTMLElement;
+    const st = (el.getAttribute("style") || "").toLowerCase();
+    const txt = (el.textContent || "").trim();
+    if ((/opacity\s*:\s*0/.test(st) || /position\s*:\s*absolute/.test(st)) && (!txt || /^\d{1,3}$/.test(txt))) {
+      el.remove();
+    }
+  });
+
   const walk = (node: Node) => {
     [...node.childNodes].forEach((child) => {
       if (child.nodeType !== 1) return;
