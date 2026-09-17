@@ -2,6 +2,7 @@
   "framework": "nextjs",
   "functions": {
     "app/api/grok/bb/ask/route.ts": { "maxDuration": 60 },
+    "app/api/grok/bb/read/route.ts": { "maxDuration": 60 },
     "app/api/grok/bb/connect/route.ts": { "maxDuration": 60 }
   }
 }

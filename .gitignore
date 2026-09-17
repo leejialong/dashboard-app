@@ -10,3 +10,5 @@ next-env.d.ts
 test-all.sh
 test-logs/
 check-env-and-dev.sh
+.vercel
+.env*

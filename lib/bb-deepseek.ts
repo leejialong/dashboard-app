@@ -101,19 +101,22 @@ async function fillComposer(page: Page, question: string): Promise<boolean> {
     return true;
   }
   const box = boxes.last();
-  await box.waitFor({ state: "visible", timeout: 8000 });
+  await box.waitFor({ state: "visible", timeout: 2500 });
   await box.click();
   if (question) await box.fill(question);
   return true;
 }
 
 async function clickSend(page: Page): Promise<void> {
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(200);
+  const box = page.locator("textarea").last();
+  const leftover = ((await box.inputValue().catch(() => "")) || "").trim();
+  if (!leftover) return;
   const labeled = page.getByRole("button", { name: /send|submit/i });
   if ((await labeled.count()) > 0) {
-    await labeled.last().click({ timeout: 2000 }).catch(() => undefined);
-    return;
+    await labeled.last().click({ timeout: 1200 }).catch(() => undefined);
   }
-  await page.keyboard.press("Enter");
 }
 
 export async function attachFiles(page: Page, files: UploadFile[]): Promise<void> {
@@ -122,13 +125,13 @@ export async function attachFiles(page: Page, files: UploadFile[]): Promise<void
   const hidden = page.locator('input[type="file"]');
   if ((await hidden.count()) > 0) {
     await hidden.first().setInputFiles(payload);
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(150);
     return;
   }
-  const chooserPromise = page.waitForEvent("filechooser", { timeout: 4000 });
+  const chooserPromise = page.waitForEvent("filechooser", { timeout: 2500 });
   const attachBtn = page.locator("button").filter({ has: page.locator("svg") }).last();
-  await page.getByRole("button", { name: /upload|attach|file|image|paperclip/i }).first().click({ timeout: 2000 }).catch(async () => {
-    await attachBtn.click({ timeout: 2000 }).catch(() => undefined);
+  await page.getByRole("button", { name: /upload|attach|file|image|paperclip/i }).first().click({ timeout: 1200 }).catch(async () => {
+    await attachBtn.click({ timeout: 1200 }).catch(() => undefined);
   });
   try {
     const chooser = await chooserPromise;
@@ -136,7 +139,7 @@ export async function attachFiles(page: Page, files: UploadFile[]): Promise<void
   } catch {
     throw new Error("Could not attach files in Cloud Chrome");
   }
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(150);
 }
 
 function collectScript() {
@@ -220,36 +223,94 @@ async function collectMedia(page: Page): Promise<DsMedia[]> {
 }
 
 async function stillStreaming(page: Page): Promise<boolean> {
-  const stop = page.getByRole("button", { name: /stop|pause/i });
+  const stop = page.getByRole("button", { name: /stop generating|stop|pause/i });
   if ((await stop.count()) > 0 && (await stop.first().isVisible().catch(() => false))) return true;
   return false;
 }
 
-export async function sendAndRead(
+async function extractReply(page: Page, question: string): Promise<string> {
+  return page.evaluate((q) => {
+    const prompt = (q || "").trim();
+    const isSidebarish = (el: Element | null) => {
+      let n = el as HTMLElement | null;
+      while (n && n !== document.documentElement) {
+        const tag = (n.tagName || "").toLowerCase();
+        const role = n.getAttribute("role") || "";
+        const blob = `${n.className || ""} ${n.id || ""}`.toLowerCase();
+        if (tag === "nav" || tag === "aside") return true;
+        if (role === "navigation" || role === "complementary") return true;
+        if (/sidebar|chat-history|history-list|session-list|ds-aside/.test(blob)) return true;
+        n = n.parentElement;
+      }
+      return false;
+    };
+    const inComposer = (el: Element | null) => Boolean(el?.closest("textarea, form, [contenteditable='true']"));
+    const clean = (el: Element) => {
+      const clone = el.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll(
+        "button, [class*='cite'], [class*='fingerprint'], sup, nav, aside, [class*='toolbar'], [class*='code-header'], [class*='md-code-block'] > div:first-child"
+      ).forEach((node) => node.remove());
+      const codes = [...clone.querySelectorAll("pre")].map((pre) => (pre.innerText || "").trim()).filter(Boolean);
+      clone.querySelectorAll("pre").forEach((pre) => pre.remove());
+      const around = (clone.innerText || "")
+        .replace(/html\s*Copy\s*Download\s*Run/gi, "")
+        .replace(/\bCopy\s*Download\s*Run\b/gi, "")
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+      return [around, ...codes].filter(Boolean).join("\n\n");
+    };
+    const markdowns = [...document.querySelectorAll(".ds-markdown, [class*='ds-markdown']")].filter((el) => {
+      if (isSidebarish(el) || inComposer(el)) return false;
+      return el.querySelectorAll(".ds-markdown, [class*='ds-markdown']").length === 0;
+    });
+    if (prompt) {
+      const userNodes = [...document.querySelectorAll("div, p, span")].filter((el) => {
+        if (isSidebarish(el) || inComposer(el)) return false;
+        const t = (el as HTMLElement).innerText?.trim() || "";
+        return t === prompt || (prompt.length >= 4 && (t.endsWith(prompt) || (t.includes(prompt) && t.length <= prompt.length + 120)));
+      });
+      const userEl = userNodes[userNodes.length - 1];
+      if (userEl) {
+        const after = markdowns.filter((el) => {
+          const pos = userEl.compareDocumentPosition(el);
+          return Boolean(pos & Node.DOCUMENT_POSITION_FOLLOWING);
+        });
+        const text = after.map(clean).filter((t) => t && t !== prompt).join("\n\n").trim();
+        if (text) return text;
+      }
+    }
+    return "";
+  }, question);
+}
+
+export type WaitResult = {
+  answer: string;
+  media: DsMedia[];
+  waitedMs: number;
+  truncated: boolean;
+  streaming: boolean;
+};
+
+async function waitForAnswer(
   page: Page,
   question: string,
-  files: UploadFile[] = [],
+  stopAt: number,
+  before: string[],
   onDelta?: (answer: string) => void
-): Promise<{ answer: string; media: DsMedia[]; waitedMs: number; truncated: boolean }> {
-  const before = await collectBlocks(page, question);
-  await attachFiles(page, files);
-  const filled = await fillComposer(page, question);
-  if (!filled && !files.length) {
-    throw new Error("DeepSeek composer not found (login or blocked page)");
-  }
-  await clickSend(page);
-
+): Promise<WaitResult> {
   const started = Date.now();
   let answer = "";
   let stable = 0;
-  let truncated = false;
-  while (Date.now() - started < 52000) {
-    await page.waitForTimeout(700);
-    const now = diffBlocks(before, await collectBlocks(page, question));
+  while (Date.now() < stopAt) {
+    await page.waitForTimeout(400);
+    const fromPrompt = await extractReply(page, question);
+    const fromDiff = diffBlocks(before, await collectBlocks(page, question));
+    const now = fromPrompt || fromDiff;
     if (now) {
       if (now === answer) {
         stable += 1;
-        if (stable >= 2 && !(await stillStreaming(page))) break;
+        if (stable >= 3 && !(await stillStreaming(page))) break;
       } else {
         answer = now;
         stable = 0;
@@ -257,12 +318,49 @@ export async function sendAndRead(
       }
     }
   }
-  if (Date.now() - started >= 52000) truncated = true;
-  if (!answer) {
-    const body = excerptFrom(await page.locator("body").innerText().catch(() => ""));
-    throw new Error(`No DeepSeek reply within 52s. Page: ${body}`);
+  const streaming = await stillStreaming(page);
+  const truncated = Date.now() >= stopAt && (streaming || !answer);
+  const media = answer ? await collectMedia(page) : [];
+  return { answer, media, waitedMs: Date.now() - started, truncated, streaming };
+}
+
+export async function sendAndRead(
+  page: Page,
+  question: string,
+  files: UploadFile[] = [],
+  onDelta?: (answer: string) => void,
+  onStatus?: (text: string) => void,
+  stopAt = Date.now() + 48000
+): Promise<WaitResult> {
+  const before = await collectBlocks(page, question);
+  onStatus?.("Attaching and typing in DeepSeek…");
+  await attachFiles(page, files);
+  const filled = await fillComposer(page, question);
+  if (!filled && !files.length) {
+    throw new Error("DeepSeek composer not found (login or blocked page)");
   }
-  if (truncated) answer = `${answer}\n\n[Reply still running in Cloud Chrome — Send again or wait, Vercel stopped at 52s.]`;
-  const media = await collectMedia(page);
-  return { answer, media, waitedMs: Date.now() - started, truncated };
+  await clickSend(page);
+  onStatus?.("Sent. Waiting for DeepSeek…");
+  return waitForAnswer(page, question, stopAt, before, onDelta);
+}
+
+export async function readLatest(
+  page: Page,
+  question: string,
+  onDelta?: (answer: string) => void,
+  stopAt = Date.now() + 45000
+): Promise<WaitResult> {
+  const before = await collectBlocks(page, question);
+  const existing = await extractReply(page, question);
+  if (existing && !(await stillStreaming(page))) {
+    onDelta?.(existing);
+    return {
+      answer: existing,
+      media: await collectMedia(page),
+      waitedMs: 0,
+      truncated: false,
+      streaming: false,
+    };
+  }
+  return waitForAnswer(page, question, stopAt, before, onDelta);
 }

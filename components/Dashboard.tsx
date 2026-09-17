@@ -70,7 +70,7 @@ export default function Dashboard({ initialAccounts, initialEmails }: DashboardP
     }
   }, [mergeRealAccount]);
 
-  // Surface OAuth failures redirected as /?gmail_error=<code>, then strip
+  // Surface OAuth failures redirected as /dashboard?gmail_error=<code>, then strip
   // the param so a refresh does not re-show a stale error.
   useEffect(() => {
     const oauthError = searchParams.get("gmail_error");
@@ -206,7 +206,10 @@ export default function Dashboard({ initialAccounts, initialEmails }: DashboardP
           </p>
           </div>
         </div>
-        <a className="add-account" href="/grok">Grok</a>
+        <div className="header-actions">
+          <a className="add-account" href="/">Home</a>
+          <a className="add-account" href="/grok">Grok</a>
+        </div>
       </header>
 
       <div className="panels">

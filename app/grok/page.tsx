@@ -12,7 +12,10 @@ export default function GrokPage() {
             <p>DeepSeek Send asks Cloud Chrome and shows the answer here.</p>
           </div>
         </div>
-        <a className="add-account" href="/">Back to mail</a>
+        <div className="header-actions">
+          <a className="add-account" href="/">Home</a>
+          <a className="add-account" href="/dashboard">Back to mail</a>
+        </div>
       </header>
       <DeepSeekCloudPoc />
       <GrokChat />

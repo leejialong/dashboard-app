@@ -1,15 +1,27 @@
-import { Suspense } from "react";
-import Dashboard from "@/components/Dashboard";
+import Link from "next/link";
 
-// Dashboard starts empty and only shows the real, OAuth-connected Gmail
-// account once you click "+ Connect account". Suspense is required because
-// Dashboard reads ?gmail_error= via useSearchParams (OAuth failure codes
-// from /api/auth/google*). lib/mock-data.ts still exports provider helpers
-// used by ExpandedAccount; its mock arrays are intentionally unwired.
 export default function Home() {
   return (
-    <Suspense fallback={null}>
-      <Dashboard initialAccounts={[]} initialEmails={[]} />
-    </Suspense>
+    <div className="app home-page">
+      <header className="page">
+        <div className="brand">
+          <img src="/dashboard-icon.png" alt="" width={40} height={40} className="brand-icon" />
+          <div>
+            <h1>Home</h1>
+            <p>Choose Dashboard or Grok.</p>
+          </div>
+        </div>
+      </header>
+      <nav className="home-nav" aria-label="Main">
+        <Link className="home-card" href="/dashboard">
+          <strong>Dashboard</strong>
+          <span>Gmail inbox and connected accounts.</span>
+        </Link>
+        <Link className="home-card" href="/grok">
+          <strong>Grok</strong>
+          <span>Cloud Chrome chat with DeepSeek.</span>
+        </Link>
+      </nav>
+    </div>
   );
 }

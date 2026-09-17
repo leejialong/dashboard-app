@@ -5,7 +5,7 @@ import { encryptSession, SESSION_COOKIE_NAME } from "@/lib/session";
 export const dynamic = "force-dynamic";
 
 function redirectWithError(req: NextRequest, code: string) {
-  const url = new URL("/", req.url);
+  const url = new URL("/dashboard", req.url);
   url.searchParams.set("gmail_error", code);
   return NextResponse.redirect(url);
 }
@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
       expiresAt: Date.now() + tokens.expires_in * 1000,
     };
 
-    const res = NextResponse.redirect(new URL("/?connected=1", req.url));
+    const res = NextResponse.redirect(new URL("/dashboard?connected=1", req.url));
     res.cookies.set(SESSION_COOKIE_NAME, encryptSession(session), {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",

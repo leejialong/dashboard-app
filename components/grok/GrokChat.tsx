@@ -30,6 +30,8 @@ type AskPayload = {
   needLogin?: boolean;
   configured?: boolean;
   media?: Media[];
+  truncated?: boolean;
+  streaming?: boolean;
 };
 
 export default function GrokChat() {
@@ -136,6 +138,31 @@ export default function GrokChat() {
     persist({ ...connected, [target.id]: false });
   }
 
+  async function pollDeepSeek(question: string, apply: (text: string, media?: Media[]) => void) {
+    for (let i = 0; i < 4; i++) {
+      apply(i === 0 ? "DeepSeek is still writing in Cloud Chrome…" : "Still waiting for the rest of the reply…");
+      const res = await fetch("/api/grok/bb/read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question }),
+      });
+      const raw = await res.text();
+      let data: AskPayload = {};
+      try {
+        data = raw ? (JSON.parse(raw) as AskPayload) : {};
+      } catch {
+        continue;
+      }
+      if (data.needLogin) {
+        apply(data.error || "Log in once inside Cloud Chrome.");
+        return;
+      }
+      if (data.answer) apply(data.answer, data.media);
+      if (data.ok && data.answer && !data.truncated && !data.streaming) return;
+    }
+    apply("Cloud Chrome finished, but this page stopped before the full reply. Open Cloud Chrome to read it, then Send a short follow-up.");
+  }
+
   async function askDeepSeek(question: string, attachments: File[]) {
     const userLine = question || attachments.map((f) => f.name).join(", ");
     setHist((prev) => ({
@@ -154,6 +181,9 @@ export default function GrokChat() {
       });
     };
 
+    const shouldPoll = (data: AskPayload) =>
+      Boolean(data.truncated || data.streaming || (data.ok && !data.answer) || /No DeepSeek reply|52s/.test(data.error || ""));
+
     try {
       const body = new FormData();
       body.append("question", question);
@@ -169,6 +199,10 @@ export default function GrokChat() {
           data = { error: raw || `HTTP ${res.status}` };
         }
         if (data.liveUrl && !data.ok) window.open(data.liveUrl, "dash_bb_deepseek");
+        if (shouldPoll(data) && !data.needLogin) {
+          await pollDeepSeek(question || userLine, apply);
+          return;
+        }
         apply(data.ok && data.answer ? data.answer : data.error || "No DeepSeek reply");
         return;
       }
@@ -176,10 +210,12 @@ export default function GrokChat() {
       const reader = res.body?.getReader();
       if (!reader) {
         apply("No stream from Cloud Chrome");
+        await pollDeepSeek(question || userLine, apply);
         return;
       }
       const dec = new TextDecoder();
       let buf = "";
+      let last: AskPayload = {};
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -195,19 +231,29 @@ export default function GrokChat() {
           } catch {
             continue;
           }
+          last = data;
           if (data.answer) apply(data.answer, data.media);
           if (data.type === "done") {
             if (data.liveUrl && !data.ok) window.open(data.liveUrl, "dash_bb_deepseek");
-            apply(
-              data.ok && data.answer ? data.answer : data.error || "No DeepSeek reply",
-              data.media
-            );
             if (data.configured === false) setCloudReady(false);
+            if (data.needLogin) {
+              apply(data.error || "Log in once inside Cloud Chrome.");
+              return;
+            }
+            if (shouldPoll(data)) {
+              await pollDeepSeek(question || userLine, apply);
+              return;
+            }
+            apply(data.ok && data.answer ? data.answer : data.error || "No DeepSeek reply", data.media);
           }
         }
       }
-    } catch (err) {
-      apply(err instanceof Error ? err.message : "Cloud ask failed");
+      if (shouldPoll(last) && !last.needLogin) {
+        await pollDeepSeek(question || userLine, apply);
+      }
+    } catch {
+      apply("Connection dropped. Checking Cloud Chrome for the reply…");
+      await pollDeepSeek(question || userLine, apply);
     } finally {
       setSending(false);
     }

@@ -1,15 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  bbConfigured,
-  clearSessionId,
-  createSession,
-  ensureContextId,
-  getBrowserbase,
-  liveViewUrl,
-  readSessionId,
-  reuseRunningSession,
-  writeSessionId,
-} from "@/lib/bb-client";
+import { bbConfigured, clearSessionId, getLiveSession, liveViewUrl } from "@/lib/bb-client";
 import { connectCdp, openDeepSeek, probeDeepSeek, sendAndRead, type UploadFile } from "@/lib/bb-deepseek";
 
 export const runtime = "nodejs";
@@ -57,19 +47,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Type a message or attach a file" }, { status: 400 });
   }
 
+  let bb;
   let connectUrl = "";
   let sessionId = "";
   try {
-    const bb = getBrowserbase();
-    const contextId = await ensureContextId(bb);
-    let session = await reuseRunningSession(bb, readSessionId());
-    if (!session) {
-      const created = await createSession(bb, contextId, true);
-      session = { id: created.id, connectUrl: created.connectUrl };
-    }
-    writeSessionId(session.id);
-    connectUrl = session.connectUrl;
-    sessionId = session.id;
+    const live = await getLiveSession();
+    bb = live.bb;
+    connectUrl = live.session.connectUrl;
+    sessionId = live.session.id;
   } catch (err) {
     return NextResponse.json(
       { ok: false, error: err instanceof Error ? err.message : "Could not start Cloud Chrome" },
@@ -84,7 +69,7 @@ export async function POST(req: Request) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
       };
       try {
-        const bb = getBrowserbase();
+        emit({ type: "status", answer: "Connecting Cloud Chrome…" });
         const { browser, page } = await connectCdp(connectUrl);
         try {
           await openDeepSeek(page);
@@ -106,9 +91,15 @@ export async function POST(req: Request) {
             return;
           }
 
-          const result = await sendAndRead(page, question, files, (answer) => {
-            emit({ type: "delta", ok: true, answer });
-          });
+          const stopAt = Date.now() + 48000;
+          const result = await sendAndRead(
+            page,
+            question,
+            files,
+            (answer) => emit({ type: "delta", ok: true, answer }),
+            (text) => emit({ type: "status", answer: text }),
+            stopAt
+          );
           emit({
             type: "done",
             ok: true,
@@ -117,6 +108,7 @@ export async function POST(req: Request) {
             media: result.media,
             waitedMs: result.waitedMs,
             truncated: result.truncated,
+            streaming: result.streaming,
           });
         } finally {
           await browser.close().catch(() => undefined);
@@ -134,6 +126,7 @@ export async function POST(req: Request) {
       "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }

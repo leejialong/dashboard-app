@@ -155,6 +155,18 @@ export async function liveViewUrl(bb: Browserbase, sessionId: string): Promise<s
   }
 }
 
+export async function getLiveSession() {
+  const bb = getBrowserbase();
+  const contextId = await ensureContextId(bb);
+  let session = await reuseRunningSession(bb, readSessionId());
+  if (!session) {
+    const created = await createSession(bb, contextId, true);
+    session = { id: created.id, connectUrl: created.connectUrl };
+  }
+  writeSessionId(session.id);
+  return { bb, session };
+}
+
 export async function reuseRunningSession(bb: Browserbase, sessionId: string | undefined) {
   const fromCookie = await sessionIfRunning(bb, sessionId);
   if (fromCookie) return fromCookie;

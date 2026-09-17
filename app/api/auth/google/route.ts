@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
     // Missing env vars, most likely — surface it instead of a silent 500.
     const message = err instanceof Error ? err.message : "Failed to build Google auth URL";
     return NextResponse.redirect(
-      new URL(`/?gmail_error=${encodeURIComponent(message)}`, req.url)
+      new URL(`/dashboard?gmail_error=${encodeURIComponent(message)}`, req.url)
     );
   }
 
