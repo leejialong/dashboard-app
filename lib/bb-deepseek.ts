@@ -1,6 +1,5 @@
 import { chromium, type Browser, type Page } from "playwright-core";
-
-const DS_URL = "https://chat.deepseek.com/";
+import { cloudBot, type CloudBotId, type CloudBotSpec } from "@/lib/bb-bots";
 
 const BLOCK_HINTS = [
   "abnormal usage environment",
@@ -34,15 +33,43 @@ export async function connectCdp(connectUrl: string): Promise<{ browser: Browser
   return { browser, page };
 }
 
+function isBlankUrl(url: string): boolean {
+  return !url || url === "about:blank" || url.startsWith("chrome://") || url.startsWith("chrome-error://");
+}
+
+export async function pageForBot(browser: Browser, botId: CloudBotId): Promise<Page> {
+  const spec = cloudBot(botId);
+  const context = browser.contexts()[0] || (await browser.newContext());
+  for (const p of context.pages()) {
+    const url = p.url();
+    if (url.includes(spec.host)) {
+      await p.bringToFront().catch(() => undefined);
+      return p;
+    }
+  }
+  const blank = context.pages().find((p) => isBlankUrl(p.url()));
+  const page = blank || (await context.newPage());
+  await page.goto(spec.url, { waitUntil: "domcontentloaded", timeout: 25000 });
+  return page;
+}
+
+export async function openBot(page: Page, botId: CloudBotId): Promise<void> {
+  const spec = cloudBot(botId);
+  if (page.url().includes(spec.host) && (await hasChatComposer(page, spec))) return;
+  await dismissNoise(page);
+  if (!page.url().includes(spec.host)) {
+    await page.goto(spec.url, { waitUntil: "domcontentloaded", timeout: 25000 });
+  }
+  await dismissNoise(page);
+  const until = Date.now() + 8000;
+  while (Date.now() < until) {
+    if (await hasChatComposer(page, spec)) return;
+    await page.waitForTimeout(400);
+  }
+}
+
 export async function openDeepSeek(page: Page): Promise<void> {
-  if (page.url().includes("chat.deepseek.com") && (await hasChatComposer(page))) {
-    return;
-  }
-  await dismissNoise(page);
-  if (!page.url().includes("chat.deepseek.com")) {
-    await page.goto(DS_URL, { waitUntil: "domcontentloaded", timeout: 25000 });
-  }
-  await dismissNoise(page);
+  await openBot(page, "deepseek");
 }
 
 async function dismissNoise(page: Page): Promise<void> {
@@ -55,21 +82,18 @@ async function dismissNoise(page: Page): Promise<void> {
   }
 }
 
-async function hasChatComposer(page: Page): Promise<boolean> {
-  const ta = page.locator("textarea");
-  if ((await ta.count().catch(() => 0)) === 0) return false;
-  const last = ta.last();
-  const visible = await last.isVisible().catch(() => false);
-  if (!visible) return false;
-  const ph = ((await last.getAttribute("placeholder").catch(() => "")) || "").toLowerCase();
-  if (/message|ask|deepseek|prompt/.test(ph)) return true;
-  const password = page.locator('input[type="password"]');
-  const passwordVisible = (await password.count()) > 0 && (await password.first().isVisible().catch(() => false));
-  return !passwordVisible;
+async function hasChatComposer(page: Page, spec: CloudBotSpec): Promise<boolean> {
+  for (const sel of spec.composers) {
+    const loc = page.locator(sel).last();
+    if ((await loc.count().catch(() => 0)) === 0) continue;
+    if (await loc.isVisible().catch(() => false)) return true;
+  }
+  return false;
 }
 
-export async function probeDeepSeek(page: Page): Promise<DsProbe> {
-  const composer = await hasChatComposer(page);
+export async function probeBot(page: Page, botId: CloudBotId): Promise<DsProbe> {
+  const spec = cloudBot(botId);
+  const composer = await hasChatComposer(page, spec);
   const passwordVisible =
     (await page.locator('input[type="password"]').count()) > 0 &&
     (await page.locator('input[type="password"]').first().isVisible().catch(() => false));
@@ -90,29 +114,39 @@ export async function probeDeepSeek(page: Page): Promise<DsProbe> {
   };
 }
 
-async function fillComposer(page: Page, question: string): Promise<boolean> {
-  const boxes = page.locator("textarea");
-  const n = await boxes.count();
-  if (n === 0) {
-    const editable = page.locator('[contenteditable="true"]');
-    if ((await editable.count()) === 0) return false;
-    await editable.last().click();
-    if (question) await editable.last().fill(question);
-    return true;
-  }
-  const box = boxes.last();
-  await box.waitFor({ state: "visible", timeout: 2500 });
-  await box.click();
-  if (question) await box.fill(question);
-  return true;
+export async function probeDeepSeek(page: Page): Promise<DsProbe> {
+  return probeBot(page, "deepseek");
 }
 
-async function clickSend(page: Page): Promise<void> {
+async function fillComposer(page: Page, question: string, spec: CloudBotSpec): Promise<boolean> {
+  for (const sel of spec.composers) {
+    const loc = page.locator(sel).last();
+    if ((await loc.count().catch(() => 0)) === 0) continue;
+    const visible = await loc.isVisible().catch(() => false);
+    if (!visible) continue;
+    await loc.click({ timeout: 2500 }).catch(() => undefined);
+    if (!question) return true;
+    try {
+      await loc.fill(question);
+    } catch {
+      await page.keyboard.press("Control+A").catch(() => undefined);
+      await page.keyboard.type(question, { delay: 0 });
+    }
+    return true;
+  }
+  return false;
+}
+
+async function clickSend(page: Page, spec: CloudBotSpec): Promise<void> {
+  for (const sel of spec.send) {
+    const btn = page.locator(sel).last();
+    if ((await btn.count().catch(() => 0)) === 0) continue;
+    if (!(await btn.isEnabled().catch(() => false))) continue;
+    await btn.click({ timeout: 1200 }).catch(() => undefined);
+    return;
+  }
   await page.keyboard.press("Enter");
   await page.waitForTimeout(200);
-  const box = page.locator("textarea").last();
-  const leftover = ((await box.inputValue().catch(() => "")) || "").trim();
-  if (!leftover) return;
   const labeled = page.getByRole("button", { name: /send|submit/i });
   if ((await labeled.count()) > 0) {
     await labeled.last().click({ timeout: 1200 }).catch(() => undefined);
@@ -143,7 +177,7 @@ export async function attachFiles(page: Page, files: UploadFile[]): Promise<void
 }
 
 function collectScript() {
-  return (question: string) => {
+  return ({ question, replies }: { question: string; replies: string }) => {
     const bad = (t: string) => !t || t === question || /^[---]?\s*\d{1,3}$/.test(t.trim());
     const isSidebarish = (el: Element | null) => {
       let n = el as HTMLElement | null;
@@ -168,16 +202,16 @@ function collectScript() {
         .replace(/\bCopy\s*Download\s*Run\b/gi, "")
         .trim();
     };
-    const nodes = [...document.querySelectorAll(".ds-markdown, [class*='ds-markdown']")].filter((el) => {
+    const nodes = [...document.querySelectorAll(replies)].filter((el) => {
       if (isSidebarish(el)) return false;
-      return el.querySelectorAll(".ds-markdown").length === 0;
+      return el.querySelectorAll(replies).length === 0;
     });
     return nodes.map(clean).filter((t) => !bad(t) && t.length >= 1);
   };
 }
 
-async function collectBlocks(page: Page, prompt: string): Promise<string[]> {
-  return page.evaluate(collectScript(), prompt);
+async function collectBlocks(page: Page, prompt: string, spec: CloudBotSpec): Promise<string[]> {
+  return page.evaluate(collectScript(), { question: prompt, replies: spec.replies.join(", ") });
 }
 
 function diffBlocks(before: string[], after: string[]): string {
@@ -217,14 +251,18 @@ async function collectMedia(page: Page): Promise<DsMedia[]> {
   });
 }
 
-async function stillStreaming(page: Page): Promise<boolean> {
-  const stop = page.getByRole("button", { name: /stop generating|stop|pause/i });
+async function stillStreaming(page: Page, spec: CloudBotSpec): Promise<boolean> {
+  for (const sel of spec.stop) {
+    const btn = page.locator(sel).first();
+    if ((await btn.count().catch(() => 0)) > 0 && (await btn.isVisible().catch(() => false))) return true;
+  }
+  const stop = page.getByRole("button", { name: /stop generating|stop responding|stop|pause/i });
   if ((await stop.count()) > 0 && (await stop.first().isVisible().catch(() => false))) return true;
   return false;
 }
 
-async function extractReply(page: Page, question: string): Promise<string> {
-  return page.evaluate((q) => {
+async function extractReply(page: Page, question: string, spec: CloudBotSpec): Promise<string> {
+  return page.evaluate(({ q, replies }) => {
     const prompt = (q || "").trim();
     const isSidebarish = (el: Element | null) => {
       let n = el as HTMLElement | null;
@@ -250,9 +288,9 @@ async function extractReply(page: Page, question: string): Promise<string> {
         .replace(/\bCopy\s*Download\s*Run\b/gi, "")
         .trim();
     };
-    const markdowns = [...document.querySelectorAll(".ds-markdown, [class*='ds-markdown']")].filter((el) => {
+    const markdowns = [...document.querySelectorAll(replies)].filter((el) => {
       if (isSidebarish(el) || inComposer(el)) return false;
-      return el.querySelectorAll(".ds-markdown, [class*='ds-markdown']").length === 0;
+      return el.querySelectorAll(replies).length === 0;
     });
     if (prompt) {
       const userNodes = [...document.querySelectorAll("div, p, span")].filter((el) => {
@@ -271,7 +309,7 @@ async function extractReply(page: Page, question: string): Promise<string> {
       }
     }
     return "";
-  }, question);
+  }, { q: question, replies: spec.replies.join(", ") });
 }
 
 export type WaitResult = {
@@ -285,6 +323,7 @@ export type WaitResult = {
 async function waitForAnswer(
   page: Page,
   question: string,
+  spec: CloudBotSpec,
   stopAt: number,
   before: string[],
   onDelta?: (answer: string) => void
@@ -294,13 +333,13 @@ async function waitForAnswer(
   let stable = 0;
   while (Date.now() < stopAt) {
     await page.waitForTimeout(400);
-    const fromPrompt = await extractReply(page, question);
-    const fromDiff = diffBlocks(before, await collectBlocks(page, question));
+    const fromPrompt = await extractReply(page, question, spec);
+    const fromDiff = diffBlocks(before, await collectBlocks(page, question, spec));
     const now = fromPrompt || fromDiff;
     if (now) {
       if (now === answer) {
         stable += 1;
-        if (stable >= 3 && !(await stillStreaming(page))) break;
+        if (stable >= 3 && !(await stillStreaming(page, spec))) break;
       } else {
         answer = now;
         stable = 0;
@@ -308,7 +347,7 @@ async function waitForAnswer(
       }
     }
   }
-  const streaming = await stillStreaming(page);
+  const streaming = await stillStreaming(page, spec);
   const truncated = Date.now() >= stopAt && (streaming || !answer);
   const media = answer ? await collectMedia(page) : [];
   return { answer, media, waitedMs: Date.now() - started, truncated, streaming };
@@ -320,29 +359,33 @@ export async function sendAndRead(
   files: UploadFile[] = [],
   onDelta?: (answer: string) => void,
   onStatus?: (text: string) => void,
-  stopAt = Date.now() + 48000
+  stopAt = Date.now() + 48000,
+  botId: CloudBotId = "deepseek"
 ): Promise<WaitResult> {
-  const before = await collectBlocks(page, question);
-  onStatus?.("Attaching and typing in DeepSeek…");
+  const spec = cloudBot(botId);
+  const before = await collectBlocks(page, question, spec);
+  onStatus?.(`Attaching and typing in ${spec.name}…`);
   await attachFiles(page, files);
-  const filled = await fillComposer(page, question);
+  const filled = await fillComposer(page, question, spec);
   if (!filled && !files.length) {
-    throw new Error("DeepSeek composer not found (login or blocked page)");
+    throw new Error(`${spec.name} composer not found (login or blocked page)`);
   }
-  await clickSend(page);
-  onStatus?.("Sent. Waiting for DeepSeek…");
-  return waitForAnswer(page, question, stopAt, before, onDelta);
+  await clickSend(page, spec);
+  onStatus?.(`Sent. Waiting for ${spec.name}…`);
+  return waitForAnswer(page, question, spec, stopAt, before, onDelta);
 }
 
 export async function readLatest(
   page: Page,
   question: string,
   onDelta?: (answer: string) => void,
-  stopAt = Date.now() + 45000
+  stopAt = Date.now() + 45000,
+  botId: CloudBotId = "deepseek"
 ): Promise<WaitResult> {
-  const before = await collectBlocks(page, question);
-  const existing = await extractReply(page, question);
-  if (existing && !(await stillStreaming(page))) {
+  const spec = cloudBot(botId);
+  const before = await collectBlocks(page, question, spec);
+  const existing = await extractReply(page, question, spec);
+  if (existing && !(await stillStreaming(page, spec))) {
     onDelta?.(existing);
     return {
       answer: existing,
@@ -352,5 +395,5 @@ export async function readLatest(
       streaming: false,
     };
   }
-  return waitForAnswer(page, question, stopAt, before, onDelta);
+  return waitForAnswer(page, question, spec, stopAt, before, onDelta);
 }

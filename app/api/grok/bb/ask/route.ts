@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
 import { bbConfigured, clearSessionId, getLiveSession, liveViewUrl } from "@/lib/bb-client";
-import { connectCdp, openDeepSeek, probeDeepSeek, sendAndRead, type UploadFile } from "@/lib/bb-deepseek";
+import { cloudBot, parseCloudBotId } from "@/lib/bb-bots";
+import { connectCdp, openBot, pageForBot, probeBot, sendAndRead, type UploadFile } from "@/lib/bb-deepseek";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-async function readAskInput(req: Request): Promise<{ question: string; files: UploadFile[] }> {
+async function readAskInput(req: Request): Promise<{ question: string; files: UploadFile[]; bot: ReturnType<typeof parseCloudBotId> }> {
   const ctype = req.headers.get("content-type") || "";
   if (ctype.includes("multipart/form-data")) {
     const form = await req.formData();
     const question = String(form.get("question") || "").trim().slice(0, 8000);
+    const bot = parseCloudBotId(form.get("bot"));
     const files: UploadFile[] = [];
     for (const item of form.getAll("files")) {
       if (typeof item === "object" && item && "arrayBuffer" in item) {
@@ -23,26 +25,27 @@ async function readAskInput(req: Request): Promise<{ question: string; files: Up
       }
       if (files.length >= 3) break;
     }
-    return { question, files };
+    return { question, files, bot };
   }
   try {
-    const body = (await req.json()) as { question?: string };
+    const body = (await req.json()) as { question?: string; bot?: string };
     const question = typeof body.question === "string" ? body.question.trim().slice(0, 8000) : "";
-    return { question: question || "hello", files: [] };
+    return { question: question || "hello", files: [], bot: parseCloudBotId(body.bot) };
   } catch {
-    return { question: "hello", files: [] };
+    return { question: "hello", files: [], bot: "deepseek" };
   }
 }
 
 export async function POST(req: Request) {
   if (!bbConfigured()) {
     return NextResponse.json(
-      { ok: false, configured: false, error: "Save the Browserbase key above first. Then Send will return the DeepSeek answer here." },
+      { ok: false, configured: false, error: "Save the Browserbase key above first. Then Send will return the answer here." },
       { status: 503 }
     );
   }
 
-  const { question, files } = await readAskInput(req);
+  const { question, files, bot } = await readAskInput(req);
+  const spec = cloudBot(bot);
   if (!question && !files.length) {
     return NextResponse.json({ ok: false, error: "Type a message or attach a file" }, { status: 400 });
   }
@@ -70,10 +73,11 @@ export async function POST(req: Request) {
       };
       try {
         emit({ type: "status", answer: "Connecting Cloud Chrome…" });
-        const { browser, page } = await connectCdp(connectUrl);
+        const { browser } = await connectCdp(connectUrl);
         try {
-          await openDeepSeek(page);
-          const probe = await probeDeepSeek(page);
+          const page = await pageForBot(browser, bot);
+          await openBot(page, bot);
+          const probe = await probeBot(page, bot);
           if (probe.blocked || !probe.loggedIn) {
             const liveUrl = await liveViewUrl(bb, sessionId);
             emit({
@@ -85,8 +89,8 @@ export async function POST(req: Request) {
               url: probe.url,
               excerpt: probe.excerpt,
               error: probe.blocked
-                ? "DeepSeek rejected the Cloud Chrome session"
-                : "Log in once inside Cloud Chrome. Later Sends reuse that login.",
+                ? `${spec.name} rejected the Cloud Chrome session`
+                : `Log in once inside Cloud Chrome to ${spec.name}. Later Sends reuse that login.`,
             });
             return;
           }
@@ -98,7 +102,8 @@ export async function POST(req: Request) {
             files,
             (answer) => emit({ type: "delta", ok: true, answer }),
             (text) => emit({ type: "status", answer: text }),
-            stopAt
+            stopAt,
+            bot
           );
           emit({
             type: "done",

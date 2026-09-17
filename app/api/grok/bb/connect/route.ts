@@ -1,20 +1,12 @@
 import { NextResponse } from "next/server";
-import {
-  bbConfigured,
-  createSession,
-  ensureContextId,
-  getBrowserbase,
-  liveViewUrl,
-  readSessionId,
-  reuseRunningSession,
-  writeSessionId,
-} from "@/lib/bb-client";
-import { connectCdp, openDeepSeek, probeDeepSeek } from "@/lib/bb-deepseek";
+import { bbConfigured, getLiveSession, liveViewUrl } from "@/lib/bb-client";
+import { cloudBot, parseCloudBotId } from "@/lib/bb-bots";
+import { connectCdp, openBot, pageForBot, probeBot } from "@/lib/bb-deepseek";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-export async function POST() {
+export async function POST(req: Request) {
   try {
     if (!bbConfigured()) {
       return NextResponse.json(
@@ -23,19 +15,24 @@ export async function POST() {
       );
     }
 
-    const bb = getBrowserbase();
-    const contextId = await ensureContextId(bb);
-    const reused = await reuseRunningSession(bb, readSessionId());
-    const session = reused ? reused : await createSession(bb, contextId, true);
-    writeSessionId(session.id);
+    let bot = parseCloudBotId("deepseek");
+    try {
+      const body = (await req.json()) as { bot?: string };
+      bot = parseCloudBotId(body.bot);
+    } catch {
+      /* default deepseek */
+    }
+    const spec = cloudBot(bot);
 
+    const { bb, session } = await getLiveSession();
     let probe = null;
     let liveUrl = await liveViewUrl(bb, session.id);
     try {
-      const { browser, page } = await connectCdp(session.connectUrl);
+      const { browser } = await connectCdp(session.connectUrl);
       try {
-        await openDeepSeek(page);
-        probe = await probeDeepSeek(page);
+        const page = await pageForBot(browser, bot);
+        await openBot(page, bot);
+        probe = await probeBot(page, bot);
       } finally {
         await browser.close().catch(() => undefined);
       }
@@ -47,6 +44,7 @@ export async function POST() {
         sessionId: session.id,
         liveUrl,
         needLogin: true,
+        bot,
         error: err instanceof Error ? err.message : "Cloud Chrome started; open live view to continue",
       });
     }
@@ -56,11 +54,13 @@ export async function POST() {
       configured: true,
       sessionId: session.id,
       liveUrl,
+      bot,
       needLogin: !probe?.loggedIn,
       blocked: Boolean(probe?.blocked),
       url: probe?.url,
       title: probe?.title,
       excerpt: probe?.excerpt,
+      error: probe?.loggedIn ? undefined : `Log in once inside Cloud Chrome to ${spec.name}.`,
     });
   } catch (err) {
     return NextResponse.json(
