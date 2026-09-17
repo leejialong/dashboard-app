@@ -157,8 +157,18 @@ function collectScript() {
     };
     const clean = (el: Element) => {
       const clone = el.cloneNode(true) as HTMLElement;
-      clone.querySelectorAll("button, [class*='cite'], [class*='fingerprint'], sup, nav, aside").forEach((node) => node.remove());
-      return (clone.innerText || "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      clone.querySelectorAll(
+        "button, [class*='cite'], [class*='fingerprint'], sup, nav, aside, [class*='toolbar'], [class*='code-header'], [class*='md-code-block'] > div:first-child"
+      ).forEach((node) => node.remove());
+      const codes = [...clone.querySelectorAll("pre")].map((pre) => (pre.innerText || "").trim()).filter(Boolean);
+      clone.querySelectorAll("pre").forEach((pre) => pre.remove());
+      const around = (clone.innerText || "")
+        .replace(/html\s*Copy\s*Download\s*Run/gi, "")
+        .replace(/\bCopy\s*Download\s*Run\b/gi, "")
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+      return [around, ...codes].filter(Boolean).join("\n\n");
     };
     const nodes = [...document.querySelectorAll(".ds-markdown, [class*='ds-markdown']")].filter((el) => {
       if (isSidebarish(el)) return false;

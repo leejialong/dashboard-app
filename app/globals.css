@@ -498,7 +498,15 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
 .grok-bubble { max-width: 80%; padding: 10px 12px; border-radius: 12px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
 .grok-bubble.user { align-self: flex-end; background: var(--accent-dim); color: var(--accent); }
 .grok-bubble.bot { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); }
-.grok-media { margin-top: 8px; display: flex; flex-direction: column; gap: 8px; }
+.grok-bubble.wide { max-width: 100%; }
+.grok-html { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.grok-html-preview {
+  width: 100%;
+  min-height: 380px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
 .grok-media img { max-width: 100%; border-radius: 8px; }
 .grok-media a { color: var(--accent); }
 .grok-composer { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px; border-top: 1px solid var(--border); }

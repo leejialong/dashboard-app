@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { GROK_BOTS, grokPromptUrl, grokWindowName, type GrokBot } from "@/lib/grok-bots";
+import { downloadTextFile, splitHtmlReply } from "@/lib/grok-format";
 
 type Media = { kind?: string; url: string; name?: string };
 type Msg = { role: "user" | "bot"; text: string; media?: Media[] };
@@ -333,9 +334,23 @@ export default function GrokChat() {
                 : "Connect opens the site. Send puts the same text in that tab."}
             </div>
           )}
-          {messages.map((m, i) => (
-            <div key={i} className={`grok-bubble ${m.role}`}>
-              {m.text}
+          {messages.map((m, i) => {
+            const split = m.role === "bot" ? splitHtmlReply(m.text) : { prose: m.text, html: null as string | null };
+            return (
+            <div key={i} className={`grok-bubble ${m.role}${split.html ? " wide" : ""}`}>
+              {split.prose}
+              {split.html && (
+                <div className="grok-html">
+                  <button
+                    type="button"
+                    className="add-account"
+                    onClick={() => downloadTextFile("deepseek.html", split.html || "", "text/html")}
+                  >
+                    Download HTML
+                  </button>
+                  <iframe className="grok-html-preview" sandbox="" title="HTML preview" srcDoc={split.html} />
+                </div>
+              )}
               {m.media && m.media.length > 0 && (
                 <div className="grok-media">
                   {m.media.map((item, j) =>
@@ -348,7 +363,8 @@ export default function GrokChat() {
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
         <form
           className="grok-composer"
