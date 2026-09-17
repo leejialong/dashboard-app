@@ -424,20 +424,7 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
   padding: 8px 10px;
   font-size: 13px;
 }
-.bb-poc-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.bb-poc-log {
-  margin: 12px 0 0;
-  padding: 10px 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--muted);
-  font-size: 12px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  max-height: 160px;
-  overflow-y: auto;
-}
+.bb-poc-error { margin: 10px 0 0; color: var(--danger); font-size: 12px; }
 
 .grok-page { min-height: 100vh; }
 .grok-shell {
@@ -456,12 +443,36 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
   overflow-y: auto;
   min-width: 0;
 }
+.grok-shell.bots-min {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
 .grok-side-head {
-  padding: 14px 16px;
+  padding: 10px 12px;
   color: var(--muted);
   font-size: 12px;
   border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
+.grok-side-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grok-side-toggle {
+  flex-shrink: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.grok-side-toggle:hover { border-color: var(--accent); }
+.grok-shell.bots-min .grok-side-head { justify-content: center; padding: 10px 6px; }
+.grok-shell.bots-min .grok-side-label { display: none; }
+.grok-shell.bots-min .grok-bot-meta { display: none; }
+.grok-shell.bots-min .grok-bot { justify-content: center; padding: 12px 8px; }
 .grok-bot {
   width: 100%;
   display: flex;
@@ -716,7 +727,21 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
     flex-direction: column;
   }
   .grok-side { max-height: 36vh; border-right: none; border-bottom: 1px solid var(--border); }
+  .grok-shell.bots-min {
+    display: flex;
+    flex-direction: column;
+  }
+  .grok-shell.bots-min .grok-side {
+    max-height: none;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+  }
+  .grok-shell.bots-min .grok-side-head { border-bottom: none; border-right: 1px solid var(--border); }
+  .grok-shell.bots-min .grok-bot { border-bottom: none; border-right: 1px solid var(--border); }
   .grok-main { min-height: 50vh; }
   .grok-send { width: 44px; height: 44px; min-height: 44px; }
   .grok-plus { width: 44px; height: 44px; }
+  .grok-side-toggle { min-height: 32px; }
 }

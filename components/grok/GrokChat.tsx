@@ -9,6 +9,7 @@ type Msg = { role: "user" | "bot"; text: string; media?: Media[] };
 type Connected = Record<string, boolean>;
 
 const STORE = "dash_grok_connected";
+const BOTS_OPEN = "dash_grok_bots_open";
 
 function loadConnected(): Connected {
   try {
@@ -43,6 +44,7 @@ export default function GrokChat() {
   const [sending, setSending] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [botsOpen, setBotsOpen] = useState(true);
 
   const bot = useMemo(() => GROK_BOTS.find((b) => b.id === botId) || GROK_BOTS[0], [botId]);
   const messages = hist[botId] || [];
@@ -51,6 +53,11 @@ export default function GrokChat() {
 
   useEffect(() => {
     setConnected(loadConnected());
+    try {
+      setBotsOpen(localStorage.getItem(BOTS_OPEN) !== "0");
+    } catch {
+      /* ignore */
+    }
     refreshCloud().catch(() => setCloudReady(false));
     const onReady = () => {
       refreshCloud().catch(() => undefined);
@@ -302,9 +309,28 @@ export default function GrokChat() {
   }
 
   return (
-    <div className="grok-shell">
+    <div className={`grok-shell${botsOpen ? "" : " bots-min"}`}>
       <aside className="grok-side">
-        <div className="grok-side-head">Bots · {GROK_BOTS.filter((b) => (b.id === "deepseek" ? cloudReady : connected[b.id])).length} connected</div>
+        <div className="grok-side-head">
+          <span className="grok-side-label">Bots · {GROK_BOTS.filter((b) => (b.id === "deepseek" ? cloudReady : connected[b.id])).length} connected</span>
+          <button
+            type="button"
+            className="grok-side-toggle"
+            aria-expanded={botsOpen}
+            title={botsOpen ? "Minimize bots" : "Show bots"}
+            onClick={() => {
+              const next = !botsOpen;
+              setBotsOpen(next);
+              try {
+                localStorage.setItem(BOTS_OPEN, next ? "1" : "0");
+              } catch {
+                /* ignore */
+              }
+            }}
+          >
+            {botsOpen ? "Hide" : "Show"}
+          </button>
+        </div>
         {GROK_BOTS.map((b) => {
           const on = b.id === "deepseek" ? cloudReady : !!connected[b.id];
           return (
