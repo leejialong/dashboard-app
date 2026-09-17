@@ -1,101 +1,92 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { GROK_BOTS, type GrokBot } from "@/lib/grok-bots";
+import { GROK_BOTS, grokPromptUrl, grokWindowName, type GrokBot } from "@/lib/grok-bots";
 
 type Msg = { role: "user" | "bot"; text: string };
+type Connected = Record<string, boolean>;
+
+const STORE = "dash_grok_connected";
+
+function loadConnected(): Connected {
+  try {
+    const raw = localStorage.getItem(STORE);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
 
 export default function GrokChat() {
   const [botId, setBotId] = useState(GROK_BOTS[0].id);
   const [draft, setDraft] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [online, setOnline] = useState<Record<string, boolean>>({});
+  const [connected, setConnected] = useState<Connected>({});
   const [hist, setHist] = useState<Record<string, Msg[]>>({});
 
   const bot = useMemo(() => GROK_BOTS.find((b) => b.id === botId) || GROK_BOTS[0], [botId]);
   const messages = hist[botId] || [];
-  const isOn = !!online[botId];
-
-  async function refreshStatus() {
-    const res = await fetch("/api/grok/status", { cache: "no-store" });
-    const data = await res.json();
-    setOnline(data.bots || {});
-  }
+  const isOn = !!connected[botId];
 
   useEffect(() => {
-    refreshStatus().catch(() => undefined);
+    setConnected(loadConnected());
   }, []);
 
-  async function connect(target: GrokBot) {
-    window.open(target.connectUrl, "_blank", "noopener,noreferrer");
+  function persist(next: Connected) {
+    setConnected(next);
+    localStorage.setItem(STORE, JSON.stringify(next));
   }
 
-  async function saveKey() {
-    const key = apiKey.trim();
-    if (!key) return;
-    setBusy(true);
-    try {
-      const res = await fetch("/api/grok/connect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bot: botId, apiKey: key }),
-      });
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error || "save failed");
-      setApiKey("");
-      await refreshStatus();
-    } finally {
-      setBusy(false);
-    }
+  function connect(target: GrokBot) {
+    window.open(target.connectUrl, grokWindowName(target.id));
+    persist({ ...connected, [target.id]: true });
   }
 
-  async function disconnect() {
-    setBusy(true);
-    try {
-      await fetch("/api/grok/connect", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bot: botId, disconnect: true }),
-      });
-      await refreshStatus();
-    } finally {
-      setBusy(false);
-    }
+  function disconnect(target: GrokBot) {
+    persist({ ...connected, [target.id]: false });
   }
 
-  async function send() {
+  function send() {
     const question = draft.trim();
-    if (!question || busy) return;
-    setDraft("");
-    const nextHist = [...messages, { role: "user" as const, text: question }];
-    setHist((prev) => ({ ...prev, [botId]: nextHist }));
-    setBusy(true);
-    try {
-      const res = await fetch("/api/grok/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bot: botId, question, history: messages }),
-      });
-      const data = await res.json();
-      const text = data.ok ? String(data.text) : String(data.error || "No reply");
-      setHist((prev) => ({ ...prev, [botId]: [...(prev[botId] || nextHist), { role: "bot", text }] }));
-    } catch (err) {
+    if (!question) return;
+
+    if (!connected[bot.id]) {
       setHist((prev) => ({
         ...prev,
-        [botId]: [...(prev[botId] || nextHist), { role: "bot", text: err instanceof Error ? err.message : "network_error" }],
+        [botId]: [
+          ...(prev[botId] || []),
+          { role: "user", text: question },
+          { role: "bot", text: `${bot.name} is Offline. Click Connect once (opens that site). Then Send. This page cannot type into that tab or read its answer.` },
+        ],
       }));
-    } finally {
-      setBusy(false);
+      setDraft("");
+      return;
     }
+
+    const popup = window.open(grokPromptUrl(bot, question), grokWindowName(bot.id));
+    setHist((prev) => ({
+      ...prev,
+      [botId]: [
+        ...(prev[botId] || []),
+        { role: "user", text: question },
+        {
+          role: "bot",
+          text: popup
+            ? `Same prompt sent to the existing ${bot.name} tab (not a new tab). This website cannot auto-click Send there or pull the answer back. That needs Local Grok or a browser extension.`
+            : "Popup blocked. Allow popups for this site, then Send again.",
+        },
+      ],
+    }));
+    setDraft("");
   }
 
   return (
     <div className="grok-shell">
       <aside className="grok-side">
-        <div className="grok-side-head">Bots · {GROK_BOTS.filter((b) => online[b.id]).length} online</div>
+        <div className="grok-side-head">Bots · {GROK_BOTS.filter((b) => connected[b.id]).length} connected</div>
         {GROK_BOTS.map((b) => {
-          const on = !!online[b.id];
+          const on = !!connected[b.id];
           return (
             <button
               key={b.id}
@@ -118,39 +109,25 @@ export default function GrokChat() {
             <h2>{bot.name}</h2>
             <p>
               {isOn
-                ? "Online. Send stays on this page and shows the reply here."
-                : "Offline. Connect opens the key page. Paste the key once, then chat here."}
+                ? "Online. Send reuses the same tab with your exact prompt. This page cannot read the reply."
+                : "Offline. Connect opens that site once so you can log in."}
             </p>
           </div>
           {isOn ? (
-            <button type="button" className="add-account" onClick={disconnect}>Disconnect</button>
+            <button type="button" className="add-account" onClick={() => disconnect(bot)}>Disconnect</button>
           ) : (
             <button type="button" className="add-account" onClick={() => connect(bot)}>Connect</button>
           )}
         </header>
-        {!isOn && (
-          <div className="grok-keybar">
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={`${bot.name} API key`}
-            />
-            <button type="button" className="add-account" onClick={saveKey} disabled={busy || !apiKey.trim()}>
-              Save key
-            </button>
-          </div>
-        )}
         <div className="grok-thread">
           {messages.length === 0 && (
             <div className="empty-state">
-              {isOn ? `Ask ${bot.name}. The answer stays in this chat.` : `Connect ${bot.name} first.`}
+              No API key. Connect opens the site. Send puts the same text in that tab. The answer cannot come back here from a website.
             </div>
           )}
           {messages.map((m, i) => (
             <div key={i} className={`grok-bubble ${m.role}`}>{m.text}</div>
           ))}
-          {busy && <div className="grok-bubble bot">Thinking…</div>}
         </div>
         <form
           className="grok-composer"
@@ -168,10 +145,10 @@ export default function GrokChat() {
                 send();
               }
             }}
-            placeholder={isOn ? `Message ${bot.name}…` : `${bot.name} is Offline`}
+            placeholder={`Same prompt for ${bot.name}…`}
             rows={2}
           />
-          <button type="submit" disabled={busy || !draft.trim() || !isOn}>Send</button>
+          <button type="submit" disabled={!draft.trim()}>Send</button>
         </form>
       </section>
     </div>

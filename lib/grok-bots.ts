@@ -15,8 +15,8 @@ export const GROK_BOTS: GrokBot[] = [
     initials: "DS",
     color: "#0ea5e9",
     provider: "DeepSeek",
-    preview: "Server API",
-    connectUrl: "https://platform.deepseek.com/api_keys",
+    preview: "chat.deepseek.com",
+    connectUrl: "https://chat.deepseek.com/",
   },
   {
     id: "chatgpt",
@@ -24,8 +24,8 @@ export const GROK_BOTS: GrokBot[] = [
     initials: "CG",
     color: "#10a37f",
     provider: "OpenAI",
-    preview: "Server API",
-    connectUrl: "https://platform.openai.com/api-keys",
+    preview: "chatgpt.com",
+    connectUrl: "https://chatgpt.com/",
   },
   {
     id: "claude",
@@ -33,8 +33,8 @@ export const GROK_BOTS: GrokBot[] = [
     initials: "CL",
     color: "#d4a373",
     provider: "Anthropic",
-    preview: "Server API",
-    connectUrl: "https://console.anthropic.com/settings/keys",
+    preview: "claude.ai",
+    connectUrl: "https://claude.ai/new",
   },
   {
     id: "gemini",
@@ -42,21 +42,27 @@ export const GROK_BOTS: GrokBot[] = [
     initials: "GE",
     color: "#6366f1",
     provider: "Google",
-    preview: "Server API",
-    connectUrl: "https://aistudio.google.com/apikey",
+    preview: "gemini.google.com",
+    connectUrl: "https://gemini.google.com/app",
   },
 ];
 
-export const GROK_KEY_COOKIES: Record<string, string> = {
-  deepseek: "grok_key_deepseek",
-  chatgpt: "grok_key_chatgpt",
-  claude: "grok_key_claude",
-  gemini: "grok_key_gemini",
-};
+export function grokPromptUrl(bot: GrokBot, question: string): string {
+  const q = encodeURIComponent(question);
+  switch (bot.id) {
+    case "chatgpt":
+      return `https://chatgpt.com/?q=${q}`;
+    case "claude":
+      return `https://claude.ai/new?q=${q}`;
+    case "gemini":
+      return `https://gemini.google.com/app?q=${q}`;
+    case "deepseek":
+      return `https://chat.deepseek.com/?q=${q}`;
+    default:
+      return `${bot.connectUrl}?q=${q}`;
+  }
+}
 
-export const GROK_ENV_KEYS: Record<string, string> = {
-  deepseek: "DEEPSEEK_API_KEY",
-  chatgpt: "OPENAI_API_KEY",
-  claude: "ANTHROPIC_API_KEY",
-  gemini: "GEMINI_API_KEY",
-};
+export function grokWindowName(botId: string): string {
+  return `dash_grok_${botId}`;
+}
