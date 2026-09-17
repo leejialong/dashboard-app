@@ -104,7 +104,6 @@ export function sessionCreateParams(contextId: string, keepAlive: boolean) {
     ...(projectId ? { projectId } : {}),
     keepAlive,
     timeout: keepAlive ? 600 : 180,
-    proxies: true,
     browserSettings: {
       solveCaptchas: true,
       recordSession: false,

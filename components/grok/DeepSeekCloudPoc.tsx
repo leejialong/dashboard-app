@@ -95,7 +95,13 @@ export default function DeepSeekCloudPoc() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: "hello" }),
       });
-      const data = (await res.json()) as AskResult;
+      const raw = await res.text();
+      let data: AskResult = {};
+      try {
+        data = raw ? (JSON.parse(raw) as AskResult) : {};
+      } catch {
+        data = { error: raw || `HTTP ${res.status}` };
+      }
       if (data.ok && data.answer) {
         push(`Reply: ${data.answer}`);
       } else {

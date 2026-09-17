@@ -77,7 +77,13 @@ export default function GrokChat() {
         return;
       }
       const res = await fetch("/api/grok/bb/connect", { method: "POST" });
-      const data = (await res.json()) as AskPayload;
+      const raw = await res.text();
+      let data: AskPayload = {};
+      try {
+        data = raw ? (JSON.parse(raw) as AskPayload) : {};
+      } catch {
+        data = { error: raw || `Server returned HTTP ${res.status} with no JSON` };
+      }
       if (data.liveUrl) window.open(data.liveUrl, "dash_bb_deepseek");
       setHist((prev) => ({
         ...prev,
@@ -114,7 +120,13 @@ export default function GrokChat() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question }),
       });
-      const data = (await res.json()) as AskPayload;
+      const raw = await res.text();
+      let data: AskPayload = {};
+      try {
+        data = raw ? (JSON.parse(raw) as AskPayload) : {};
+      } catch {
+        data = { error: raw || `Server returned HTTP ${res.status} with no JSON` };
+      }
       if (data.liveUrl && !data.ok) window.open(data.liveUrl, "dash_bb_deepseek");
       const reply = data.ok && data.answer
         ? data.answer
