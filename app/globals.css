@@ -466,15 +466,6 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
 }
 .icon-btn:hover { border-color: var(--accent); }
 .icon-btn.help { color: var(--muted); font-weight: 700; }
-.grok-header-min {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-bottom: 8px;
-  flex-shrink: 0;
-  min-height: 32px;
-}
-.grok-page.header-min header.page { display: none; }
 .grok-shell {
   flex: 1;
   display: grid;
