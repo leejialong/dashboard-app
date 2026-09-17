@@ -96,11 +96,14 @@ export default function DeepSeekCloudPoc() {
         body: JSON.stringify({ question: "hello" }),
       });
       const raw = await res.text();
+      const lines = raw.split("\n").map((l) => l.replace(/^data:\s*/, "").trim()).filter((l) => l.startsWith("{"));
       let data: AskResult = {};
-      try {
-        data = raw ? (JSON.parse(raw) as AskResult) : {};
-      } catch {
-        data = { error: raw || `HTTP ${res.status}` };
+      for (const line of lines) {
+        try {
+          data = JSON.parse(line) as AskResult;
+        } catch {
+          /* skip */
+        }
       }
       if (data.ok && data.answer) {
         push(`Reply: ${data.answer}`);

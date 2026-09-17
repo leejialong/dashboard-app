@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { GROK_BOTS, grokPromptUrl, grokWindowName, type GrokBot } from "@/lib/grok-bots";
 
-type Msg = { role: "user" | "bot"; text: string };
+type Media = { kind?: string; url: string; name?: string };
+type Msg = { role: "user" | "bot"; text: string; media?: Media[] };
 type Connected = Record<string, boolean>;
 
 const STORE = "dash_grok_connected";
@@ -20,12 +21,14 @@ function loadConnected(): Connected {
 }
 
 type AskPayload = {
+  type?: string;
   ok?: boolean;
   answer?: string;
   error?: string;
   liveUrl?: string;
   needLogin?: boolean;
   configured?: boolean;
+  media?: Media[];
 };
 
 export default function GrokChat() {
@@ -35,6 +38,7 @@ export default function GrokChat() {
   const [hist, setHist] = useState<Record<string, Msg[]>>({});
   const [cloudReady, setCloudReady] = useState(false);
   const [sending, setSending] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
 
   const bot = useMemo(() => GROK_BOTS.find((b) => b.id === botId) || GROK_BOTS[0], [botId]);
   const messages = hist[botId] || [];
@@ -112,42 +116,78 @@ export default function GrokChat() {
     persist({ ...connected, [target.id]: false });
   }
 
-  async function askDeepSeek(question: string) {
+  async function askDeepSeek(question: string, attachments: File[]) {
+    const userLine = question || attachments.map((f) => f.name).join(", ");
     setHist((prev) => ({
       ...prev,
-      deepseek: [...(prev.deepseek || []), { role: "user", text: question }, { role: "bot", text: "Cloud Chrome is asking DeepSeek…" }],
+      deepseek: [...(prev.deepseek || []), { role: "user", text: userLine }, { role: "bot", text: "Sending…" }],
     }));
     setDraft("");
+    setFiles([]);
     setSending(true);
+
+    const apply = (text: string, media?: Media[]) => {
+      setHist((prev) => {
+        const list = [...(prev.deepseek || [])];
+        list[list.length - 1] = { role: "bot", text, media };
+        return { ...prev, deepseek: list };
+      });
+    };
+
     try {
-      const res = await fetch("/api/grok/bb/ask", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question }),
-      });
-      const raw = await res.text();
-      let data: AskPayload = {};
-      try {
-        data = raw ? (JSON.parse(raw) as AskPayload) : {};
-      } catch {
-        data = { error: raw || `Server returned HTTP ${res.status} with no JSON` };
+      const body = new FormData();
+      body.append("question", question);
+      attachments.forEach((f) => body.append("files", f));
+      const res = await fetch("/api/grok/bb/ask", { method: "POST", body });
+      const ctype = res.headers.get("content-type") || "";
+      if (!ctype.includes("text/event-stream")) {
+        const raw = await res.text();
+        let data: AskPayload = {};
+        try {
+          data = raw ? (JSON.parse(raw) as AskPayload) : {};
+        } catch {
+          data = { error: raw || `HTTP ${res.status}` };
+        }
+        if (data.liveUrl && !data.ok) window.open(data.liveUrl, "dash_bb_deepseek");
+        apply(data.ok && data.answer ? data.answer : data.error || "No DeepSeek reply");
+        return;
       }
-      if (data.liveUrl && !data.ok) window.open(data.liveUrl, "dash_bb_deepseek");
-      const reply = data.ok && data.answer
-        ? data.answer
-        : data.error || "Cloud Chrome did not return a DeepSeek answer.";
-      setHist((prev) => {
-        const list = [...(prev.deepseek || [])];
-        list[list.length - 1] = { role: "bot", text: reply };
-        return { ...prev, deepseek: list };
-      });
-      if (data.configured === false) setCloudReady(false);
+
+      const reader = res.body?.getReader();
+      if (!reader) {
+        apply("No stream from Cloud Chrome");
+        return;
+      }
+      const dec = new TextDecoder();
+      let buf = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const chunks = buf.split("\n\n");
+        buf = chunks.pop() || "";
+        for (const chunk of chunks) {
+          const line = chunk.replace(/^data:\s*/, "").trim();
+          if (!line) continue;
+          let data: AskPayload = {};
+          try {
+            data = JSON.parse(line) as AskPayload;
+          } catch {
+            continue;
+          }
+          if (data.answer) apply(data.answer, data.media);
+          if (data.type === "done") {
+            if (data.liveUrl && !data.ok) window.open(data.liveUrl, "dash_bb_deepseek");
+            apply(
+              data.ok && data.answer ? data.answer : data.error || "No DeepSeek reply",
+              data.media
+            );
+            if (data.configured === false) setCloudReady(false);
+          }
+        }
+      }
     } catch (err) {
-      setHist((prev) => {
-        const list = [...(prev.deepseek || [])];
-        list[list.length - 1] = { role: "bot", text: err instanceof Error ? err.message : "Cloud ask failed" };
-        return { ...prev, deepseek: list };
-      });
+      apply(err instanceof Error ? err.message : "Cloud ask failed");
     } finally {
       setSending(false);
     }
@@ -155,12 +195,15 @@ export default function GrokChat() {
 
   async function send() {
     const question = draft.trim();
-    if (!question || sending) return;
+    if (sending) return;
 
     if (isDeepSeek) {
-      await askDeepSeek(question);
+      if (!question && files.length === 0) return;
+      await askDeepSeek(question, files);
       return;
     }
+
+    if (!question) return;
 
     if (!connected[bot.id]) {
       setHist((prev) => ({
@@ -249,7 +292,20 @@ export default function GrokChat() {
             </div>
           )}
           {messages.map((m, i) => (
-            <div key={i} className={`grok-bubble ${m.role}`}>{m.text}</div>
+            <div key={i} className={`grok-bubble ${m.role}`}>
+              {m.text}
+              {m.media && m.media.length > 0 && (
+                <div className="grok-media">
+                  {m.media.map((item, j) =>
+                    item.kind === "image" || /\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(item.url) ? (
+                      <img key={j} src={item.url} alt={item.name || "image"} />
+                    ) : (
+                      <a key={j} href={item.url} target="_blank" rel="noreferrer">{item.name || item.url}</a>
+                    )
+                  )}
+                </div>
+              )}
+            </div>
           ))}
         </div>
         <form
@@ -259,6 +315,27 @@ export default function GrokChat() {
             send();
           }}
         >
+          {isDeepSeek && (
+            <div className="grok-attach">
+              <label className="add-account">
+                Attach
+                <input
+                  type="file"
+                  accept="image/*,.pdf,.txt,.csv,.doc,.docx"
+                  multiple
+                  hidden
+                  onChange={(e) => {
+                    const next = [...files, ...Array.from(e.target.files || [])].slice(0, 3);
+                    setFiles(next);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {files.map((f) => (
+                <em key={f.name}>{f.name}</em>
+              ))}
+            </div>
+          )}
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -271,7 +348,7 @@ export default function GrokChat() {
             placeholder={isDeepSeek ? "Ask DeepSeek. The answer comes back here…" : `Same prompt for ${bot.name}…`}
             rows={2}
           />
-          <button type="submit" disabled={!draft.trim() || sending}>{sending ? "…" : "Send"}</button>
+          <button type="submit" disabled={sending || (!draft.trim() && files.length === 0)}>{sending ? "…" : "Send"}</button>
         </form>
       </section>
     </div>
