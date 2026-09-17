@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { GROK_BOTS, type GrokBot } from "@/lib/grok-bots";
+import { GROK_BOTS, bbLiveWindowName, type GrokBot } from "@/lib/grok-bots";
+import { GROK_ATTACH_TOO_LARGE, grokAttachSizeError } from "@/lib/constants";
 import { downloadTextFile, formatBotHtml, splitHtmlReply } from "@/lib/grok-format";
 
 type Media = { kind?: string; url: string; name?: string };
@@ -23,7 +24,13 @@ type AskPayload = {
   media?: Media[];
   truncated?: boolean;
   streaming?: boolean;
+  message?: string;
 };
+
+function openLiveView(url: string | undefined, botKey: string) {
+  if (!url) return;
+  window.open(url, bbLiveWindowName(botKey));
+}
 
 function statusLabel(status: BotLiveStatus): string {
   if (status === "online") return "Online";
@@ -113,7 +120,7 @@ export default function GrokChat() {
     } catch {
       data = { error: raw || `Server returned HTTP ${res.status} with no JSON` };
     }
-    if (data.liveUrl) window.open(data.liveUrl, "dash_bb_cloud");
+    openLiveView(data.liveUrl, target.id);
     if (data.needLogin) {
       markBot(target.id, "needLogin");
     } else if (!data.error) {
@@ -126,8 +133,8 @@ export default function GrokChat() {
         {
           role: "bot",
           text: data.needLogin
-            ? `Cloud Chrome is open. Log in to ${target.name} once. Later Sends reuse that login and return the answer here.`
-            : data.error || `Already logged in on Cloud Chrome. Send to get the ${target.name} answer here.`,
+            ? data.error || `Same Cloud Chrome — ${target.name} tab is open. Log in once there. Other bot tabs stay open.`
+            : data.message || data.error || `Same Cloud Chrome — focused the ${target.name} tab. Other bots stay open. Send to get the ${target.name} answer here.`,
         },
       ],
     }));
@@ -184,7 +191,7 @@ export default function GrokChat() {
     };
 
     const shouldPoll = (data: AskPayload) =>
-      Boolean(data.truncated || data.streaming || (data.ok && !data.answer) || /No DeepSeek reply|52s/.test(data.error || ""));
+      Boolean(data.truncated || data.streaming || (data.ok && !data.answer) || /No DeepSeek reply|Waiting for Gemini|52s/.test(`${data.error || ""} ${data.answer || ""}`));
 
     try {
       const body = new FormData();
@@ -199,9 +206,13 @@ export default function GrokChat() {
         try {
           data = raw ? (JSON.parse(raw) as AskPayload) : {};
         } catch {
-          data = { error: raw || `HTTP ${res.status}` };
+          data = {
+            error: /FUNCTION_PAYLOAD_TOO_LARGE|Request Entity Too Large/i.test(raw)
+              ? GROK_ATTACH_TOO_LARGE
+              : raw || `HTTP ${res.status}`,
+          };
         }
-        if (data.liveUrl && !data.ok) window.open(data.liveUrl, "dash_bb_cloud");
+        if (data.liveUrl && !data.ok) openLiveView(data.liveUrl, targetId);
         if (data.needLogin) {
           markBot(targetId, "needLogin");
           apply(data.error || "Log in once inside Cloud Chrome.");
@@ -229,6 +240,7 @@ export default function GrokChat() {
       const dec = new TextDecoder();
       let buf = "";
       let last: AskPayload = {};
+      let sawDone = false;
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -247,7 +259,8 @@ export default function GrokChat() {
           last = data;
           if (data.answer) apply(data.answer, data.media);
           if (data.type === "done") {
-            if (data.liveUrl && !data.ok) window.open(data.liveUrl, "dash_bb_cloud");
+            sawDone = true;
+            if (data.liveUrl && !data.ok) openLiveView(data.liveUrl, targetId);
             if (data.configured === false) setCloudReady(false);
             if (data.needLogin) {
               markBot(targetId, "needLogin");
@@ -267,7 +280,7 @@ export default function GrokChat() {
           }
         }
       }
-      if (shouldPoll(last) && !last.needLogin) {
+      if ((!sawDone || shouldPoll(last)) && !last.needLogin) {
         await pollCloud(targetId, question || userLine, apply);
       } else if (last.ok && last.answer && !last.needLogin) {
         markBot(targetId, "online");
@@ -286,6 +299,15 @@ export default function GrokChat() {
     const question = draft.trim();
     if (sending) return;
     if (!question && files.length === 0) return;
+    const sizeError = grokAttachSizeError(question, files);
+    if (sizeError) {
+      const userLine = question || files.map((f) => f.name).join(", ");
+      setHist((prev) => ({
+        ...prev,
+        [botId]: [...(prev[botId] || []), { role: "user", text: userLine }, { role: "bot", text: sizeError }],
+      }));
+      return;
+    }
     await askCloud(botId, question, files);
   }
 
@@ -446,7 +468,7 @@ export default function GrokChat() {
             </div>
           )}
           <div className="grok-bar">
-            <label className="grok-plus" title="Add photos and files">
+            <label className="grok-plus" title="Add photos and files (max 2 MB each, 3 MB total)">
                 +
                 <input
                   type="file"
@@ -487,6 +509,7 @@ export default function GrokChat() {
               {sending ? "…" : "↑"}
             </button>
           </div>
+          <p className="grok-attach-hint">Max 2 MB per file, 3 MB total · Cloud Chrome upload</p>
         </form>
       </section>
     </div>

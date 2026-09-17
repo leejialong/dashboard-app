@@ -85,12 +85,15 @@ function isBlankUrl(url: string): boolean {
 export async function pageForBot(browser: Browser, botId: CloudBotId): Promise<Page> {
   const spec = cloudBot(botId);
   const context = browser.contexts()[0] || (await browser.newContext());
-  const existing = context.pages().find((p) => urlMatchesBotHost(p.url(), spec.host));
+  const pages = context.pages();
+  const existing = pages.find((p) => urlMatchesBotHost(p.url(), spec.host));
   if (existing) {
     await existing.bringToFront().catch(() => undefined);
     return existing;
   }
-  const blank = context.pages().find((p) => isBlankUrl(p.url()));
+  // Keep other bot tabs. Only reuse a leftover blank when nothing else is loaded.
+  const othersBusy = pages.some((p) => !isBlankUrl(p.url()));
+  const blank = othersBusy ? undefined : pages.find((p) => isBlankUrl(p.url()));
   const page = blank || (await context.newPage());
   await page.bringToFront().catch(() => undefined);
   await page.goto(spec.url, { waitUntil: "domcontentloaded", timeout: 25000 });
@@ -251,8 +254,21 @@ function collectScript() {
         const role = n.getAttribute("role") || "";
         const blob = `${n.className || ""} ${n.id || ""}`.toLowerCase();
         if (tag === "nav" || tag === "aside") return true;
-        if (role === "navigation" || role === "complementary") return true;
+        if (role === "navigation") return true;
+        if (role === "complementary" && /sidebar|history|nav/.test(blob)) return true;
         if (/sidebar|chat-history|history-list|session-list|ds-aside/.test(blob)) return true;
+        n = n.parentElement;
+      }
+      return false;
+    };
+    const isUserTurn = (el: Element | null) => {
+      let n = el as HTMLElement | null;
+      while (n && n !== document.documentElement) {
+        const tag = (n.tagName || "").toLowerCase();
+        const author = (n.getAttribute("data-message-author") || "").toLowerCase();
+        const blob = `${n.className || ""} ${n.id || ""}`.toLowerCase();
+        if (tag === "user-query" || author === "user") return true;
+        if (/user-query|query-content|query-text|conversation-turn-user/.test(blob)) return true;
         n = n.parentElement;
       }
       return false;
@@ -270,13 +286,15 @@ function collectScript() {
       clone.querySelectorAll(
         "button, script, style, [class*='cite'], [class*='fingerprint'], sup, nav, aside, [class*='toolbar'], [class*='code-header']"
       ).forEach((node) => node.remove());
-      return (clone.innerHTML || "")
+      const html = (clone.innerHTML || "")
         .replace(/html\s*Copy\s*Download\s*Run/gi, "")
         .replace(/\bCopy\s*Download\s*Run\b/gi, "")
         .trim();
+      if (html) return html;
+      return ((el as HTMLElement).innerText || el.textContent || "").trim();
     };
     const nodes = [...document.querySelectorAll(replies)].filter((el) => {
-      if (isSidebarish(el)) return false;
+      if (isSidebarish(el) || isUserTurn(el) || el.closest("textarea, .ql-editor, rich-textarea")) return false;
       return el.querySelectorAll(replies).length === 0;
     });
     return nodes.map(clean).filter((t) => !bad(t) && t.length >= 1);
@@ -339,13 +357,26 @@ async function stillStreaming(page: Page, spec: CloudBotSpec): Promise<boolean> 
     const btn = page.locator(sel).first();
     if ((await btn.count().catch(() => 0)) > 0 && (await btn.isVisible().catch(() => false))) return true;
   }
-  const stop = page.getByRole("button", { name: /stop generating|stop responding|stop|pause/i });
+  const stop = page.getByRole("button", { name: /stop generating|stop responding/i });
   if ((await stop.count()) > 0 && (await stop.first().isVisible().catch(() => false))) return true;
   return false;
 }
 
+/** Playwright locators pierce open shadow roots that querySelectorAll misses on Gemini. */
+async function geminiVisibleReply(page: Page, question: string): Promise<string> {
+  const prompt = (question || "").trim();
+  const sels = ["model-response", ".response-content", '[data-message-author="model"]', "message-content"];
+  for (const sel of sels) {
+    const loc = page.locator(sel).last();
+    if ((await loc.count().catch(() => 0)) === 0) continue;
+    const text = (await loc.innerText({ timeout: 800 }).catch(() => "")).trim();
+    if (text && text !== prompt) return text;
+  }
+  return "";
+}
+
 async function extractReply(page: Page, question: string, spec: CloudBotSpec): Promise<string> {
-  return page.evaluate(({ q, replies }) => {
+  const fromDom = await page.evaluate(({ q, replies, allowLast }) => {
     const prompt = (q || "").trim();
     const isSidebarish = (el: Element | null) => {
       let n = el as HTMLElement | null;
@@ -354,13 +385,26 @@ async function extractReply(page: Page, question: string, spec: CloudBotSpec): P
         const role = n.getAttribute("role") || "";
         const blob = `${n.className || ""} ${n.id || ""}`.toLowerCase();
         if (tag === "nav" || tag === "aside") return true;
-        if (role === "navigation" || role === "complementary") return true;
+        if (role === "navigation") return true;
+        if (role === "complementary" && /sidebar|history|nav/.test(blob)) return true;
         if (/sidebar|chat-history|history-list|session-list|ds-aside/.test(blob)) return true;
         n = n.parentElement;
       }
       return false;
     };
-    const inComposer = (el: Element | null) => Boolean(el?.closest("textarea, form, [contenteditable='true']"));
+    const inComposer = (el: Element | null) => Boolean(el?.closest("textarea, .ql-editor, rich-textarea, div.ProseMirror, #prompt-textarea"));
+    const isUserTurn = (el: Element | null) => {
+      let n = el as HTMLElement | null;
+      while (n && n !== document.documentElement) {
+        const tag = (n.tagName || "").toLowerCase();
+        const author = (n.getAttribute("data-message-author") || "").toLowerCase();
+        const blob = `${n.className || ""} ${n.id || ""}`.toLowerCase();
+        if (tag === "user-query" || author === "user") return true;
+        if (/user-query|query-content|query-text|conversation-turn-user/.test(blob)) return true;
+        n = n.parentElement;
+      }
+      return false;
+    };
     const clean = (el: Element) => {
       const clone = el.cloneNode(true) as HTMLElement;
       clone.querySelectorAll("*").forEach((node) => {
@@ -374,20 +418,22 @@ async function extractReply(page: Page, question: string, spec: CloudBotSpec): P
       clone.querySelectorAll(
         "button, script, style, [class*='cite'], [class*='fingerprint'], sup, nav, aside, [class*='toolbar'], [class*='code-header']"
       ).forEach((node) => node.remove());
-      return (clone.innerHTML || "")
+      const html = (clone.innerHTML || "")
         .replace(/html\s*Copy\s*Download\s*Run/gi, "")
         .replace(/\bCopy\s*Download\s*Run\b/gi, "")
         .trim();
+      if (html) return html;
+      return ((el as HTMLElement).innerText || el.textContent || "").trim();
     };
     const markdowns = [...document.querySelectorAll(replies)].filter((el) => {
-      if (isSidebarish(el) || inComposer(el)) return false;
+      if (isSidebarish(el) || isUserTurn(el) || inComposer(el)) return false;
       return el.querySelectorAll(replies).length === 0;
     });
     if (prompt) {
-      const userNodes = [...document.querySelectorAll("div, p, span")].filter((el) => {
+      const userNodes = [...document.querySelectorAll("div, p, span, user-query, .query-text, .user-query, [data-message-author='user']")].filter((el) => {
         if (isSidebarish(el) || inComposer(el)) return false;
         const t = (el as HTMLElement).innerText?.trim() || "";
-        return t === prompt || (prompt.length >= 4 && (t.endsWith(prompt) || (t.includes(prompt) && t.length <= prompt.length + 120)));
+        return t === prompt || t.toLowerCase() === prompt.toLowerCase() || (prompt.length >= 4 && (t.endsWith(prompt) || (t.includes(prompt) && t.length <= prompt.length + 120)));
       });
       const userEl = userNodes[userNodes.length - 1];
       if (userEl) {
@@ -402,8 +448,18 @@ async function extractReply(page: Page, question: string, spec: CloudBotSpec): P
         }
       }
     }
+    // Gemini custom elements often fail prompt matching (short "hi", user-query host).
+    if (allowLast) {
+      for (let i = markdowns.length - 1; i >= 0; i -= 1) {
+        const text = clean(markdowns[i]);
+        if (text && text !== prompt) return text;
+      }
+    }
     return "";
-  }, { q: question, replies: spec.replies.join(", ") });
+  }, { q: question, replies: spec.replies.join(", "), allowLast: spec.id === "gemini" });
+  if (fromDom) return fromDom;
+  if (spec.id === "gemini") return geminiVisibleReply(page, question);
+  return "";
 }
 
 export type WaitResult = {
@@ -478,8 +534,10 @@ export async function readLatest(
   botId: CloudBotId = "deepseek"
 ): Promise<WaitResult> {
   const spec = cloudBot(botId);
-  const before = await collectBlocks(page, question, spec);
-  const existing = sanitizeAnswer(await extractReply(page, question, spec));
+  const blocks = await collectBlocks(page, question, spec);
+  const existing = sanitizeAnswer(
+    (await extractReply(page, question, spec)) || (botId === "gemini" ? blocks[blocks.length - 1] || "" : "")
+  );
   if (existing && !(await stillStreaming(page, spec))) {
     onDelta?.(existing);
     return {
@@ -490,5 +548,7 @@ export async function readLatest(
       streaming: false,
     };
   }
+  // Reply already on the page must not be used as the "before" snapshot or poll diffs to empty.
+  const before = existing ? blocks.slice(0, Math.max(0, blocks.length - 1)) : botId === "gemini" ? [] : blocks;
   return waitForAnswer(page, question, spec, stopAt, before, onDelta);
 }

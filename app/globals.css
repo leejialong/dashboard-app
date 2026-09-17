@@ -723,6 +723,12 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
   flex-shrink: 0;
 }
 .grok-send:disabled { opacity: 0.35; cursor: default; }
+.grok-attach-hint {
+  margin: 0;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
 
 /* Tablet: keep two columns, narrow the sidebar */
 @media (max-width: 1024px) {
