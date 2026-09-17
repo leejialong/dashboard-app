@@ -1,29 +1,44 @@
 import { NextResponse } from "next/server";
 import { bbConfigured, clearSessionId, getLiveSession, liveViewUrl } from "@/lib/bb-client";
 import { cloudBot, parseCloudBotId } from "@/lib/bb-bots";
+import { GROK_ASK_MAX_BODY_BYTES, GROK_ATTACH_TOO_LARGE, grokAttachSizeError } from "@/lib/constants";
 import { connectCdp, openBot, pageForBot, probeBot, sendAndRead, type UploadFile } from "@/lib/bb-deepseek";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-async function readAskInput(req: Request): Promise<{ question: string; files: UploadFile[]; bot: ReturnType<typeof parseCloudBotId> }> {
+async function readAskInput(req: Request): Promise<{
+  question: string;
+  files: UploadFile[];
+  bot: ReturnType<typeof parseCloudBotId>;
+  tooLarge?: boolean;
+}> {
+  const contentLength = Number(req.headers.get("content-length") || 0);
+  if (contentLength > GROK_ASK_MAX_BODY_BYTES) {
+    return { question: "", files: [], bot: "deepseek", tooLarge: true };
+  }
   const ctype = req.headers.get("content-type") || "";
   if (ctype.includes("multipart/form-data")) {
     const form = await req.formData();
     const question = String(form.get("question") || "").trim().slice(0, 8000);
     const bot = parseCloudBotId(form.get("bot"));
-    const files: UploadFile[] = [];
+    const incoming: File[] = [];
     for (const item of form.getAll("files")) {
       if (typeof item === "object" && item && "arrayBuffer" in item) {
-        const f = item as File;
-        if (f.size > 3_500_000) continue;
-        files.push({
-          name: f.name || "file",
-          mime: f.type || "application/octet-stream",
-          buffer: Buffer.from(await f.arrayBuffer()),
-        });
+        incoming.push(item as File);
+        if (incoming.length >= 3) break;
       }
-      if (files.length >= 3) break;
+    }
+    if (grokAttachSizeError(question, incoming)) {
+      return { question, files: [], bot, tooLarge: true };
+    }
+    const files: UploadFile[] = [];
+    for (const f of incoming) {
+      files.push({
+        name: f.name || "file",
+        mime: f.type || "application/octet-stream",
+        buffer: Buffer.from(await f.arrayBuffer()),
+      });
     }
     return { question, files, bot };
   }
@@ -44,7 +59,10 @@ export async function POST(req: Request) {
     );
   }
 
-  const { question, files, bot } = await readAskInput(req);
+  const { question, files, bot, tooLarge } = await readAskInput(req);
+  if (tooLarge) {
+    return NextResponse.json({ ok: false, error: GROK_ATTACH_TOO_LARGE }, { status: 413 });
+  }
   const spec = cloudBot(bot);
   if (!question && !files.length) {
     return NextResponse.json({ ok: false, error: "Type a message or attach a file" }, { status: 400 });

@@ -47,6 +47,7 @@ export async function POST(req: Request) {
         needLogin: true,
         bot,
         error: err instanceof Error ? err.message : "Cloud Chrome started; open live view to continue",
+        message: `Same Cloud Chrome — ${spec.name} tab focused. Other bot tabs stay open.`,
       });
     }
 
@@ -61,7 +62,8 @@ export async function POST(req: Request) {
       url: probe?.url,
       title: probe?.title,
       excerpt: probe?.excerpt,
-      error: probe?.loggedIn ? undefined : `Log in once inside Cloud Chrome to ${spec.name}.`,
+      message: `Same Cloud Chrome — focused the ${spec.name} tab. Other bots stay open.`,
+      error: probe?.loggedIn ? undefined : `Log in once on the ${spec.name} tab in Cloud Chrome. Other bot tabs stay open.`,
     });
   } catch (err) {
     return NextResponse.json(

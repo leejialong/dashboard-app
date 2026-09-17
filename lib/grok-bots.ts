@@ -66,3 +66,8 @@ export function grokPromptUrl(bot: GrokBot, question: string): string {
 export function grokWindowName(botId: string): string {
   return `dash_grok_${botId}`;
 }
+
+/** Per-bot Browserbase live-view window so Connect on B does not replace A. */
+export function bbLiveWindowName(botId: string): string {
+  return `dash_bb_${botId}`;
+}

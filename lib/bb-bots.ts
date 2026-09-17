@@ -52,10 +52,39 @@ export const CLOUD_BOTS: Record<CloudBotId, CloudBotSpec> = {
     name: "Gemini",
     url: "https://gemini.google.com/app",
     host: "gemini.google.com",
-    composers: [".ql-editor", 'rich-textarea [contenteditable="true"]', '[aria-label*="Enter a prompt"]', '[contenteditable="true"]'],
-    send: ['button[aria-label="Send message"]', 'button[aria-label="Send"]'],
-    replies: [".model-response-text", "message-content", ".markdown"],
-    stop: ['button[aria-label="Stop"]', 'button[aria-label="Stop responding"]'],
+    composers: [
+      '.ql-editor[contenteditable="true"]',
+      "rich-textarea .ql-editor",
+      ".ql-editor",
+      'rich-textarea [contenteditable="true"]',
+      '[aria-label="Enter a prompt for Gemini"]',
+      '[aria-label*="Enter a prompt"]',
+      'div[role="textbox"][contenteditable="true"]',
+      '[contenteditable="true"]',
+    ],
+    send: [
+      'button.send-button[aria-label="Send message"]',
+      'button[aria-label="Send message"]',
+      "button.send-button",
+      'button[aria-label="Send"]',
+    ],
+    // Prefer Gemini web components / author attrs over generic .markdown (matches user turns too).
+    replies: [
+      "model-response .response-content",
+      "model-response",
+      ".response-content",
+      ".model-response-text",
+      '[data-message-author="model"]',
+      "message-content .markdown",
+      "message-content",
+      ".markdown.markdown-main-panel",
+    ],
+    stop: [
+      'button[aria-label="Stop responding"]',
+      'button[aria-label="Stop generating"]',
+      'button.send-button[aria-label="Stop"]',
+      'button[aria-label="Stop"]',
+    ],
   },
 };
 
