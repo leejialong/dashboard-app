@@ -52,16 +52,15 @@ async function readAskInput(req: Request): Promise<{
 }
 
 export async function POST(req: Request) {
+  const { question, files, bot, tooLarge } = await readAskInput(req);
+  if (tooLarge) {
+    return NextResponse.json({ ok: false, error: GROK_ATTACH_TOO_LARGE }, { status: 413 });
+  }
   if (!bbConfigured()) {
     return NextResponse.json(
       { ok: false, configured: false, error: "Save the Browserbase key above first. Then Send will return the answer here." },
       { status: 503 }
     );
-  }
-
-  const { question, files, bot, tooLarge } = await readAskInput(req);
-  if (tooLarge) {
-    return NextResponse.json({ ok: false, error: GROK_ATTACH_TOO_LARGE }, { status: 413 });
   }
   const spec = cloudBot(bot);
   if (!question && !files.length) {
