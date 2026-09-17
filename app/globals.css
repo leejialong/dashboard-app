@@ -402,8 +402,17 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
 .grok-bot-meta { display: flex; flex-direction: column; min-width: 0; }
 .grok-bot-meta strong { font-size: 13px; }
 .grok-bot-meta em { font-size: 11px; color: var(--muted); font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grok-bot-meta em.on { color: var(--accent); }
+.grok-bot-meta em.off { color: var(--danger); }
 .grok-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
-.grok-top { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.grok-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
 .grok-top h2 { margin: 0 0 4px; font-size: 16px; }
 .grok-top p { margin: 0; color: var(--muted); font-size: 12px; }
 .grok-thread { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
