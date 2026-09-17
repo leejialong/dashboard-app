@@ -254,7 +254,8 @@ function collectScript() {
         const role = n.getAttribute("role") || "";
         const blob = `${n.className || ""} ${n.id || ""}`.toLowerCase();
         if (tag === "nav" || tag === "aside") return true;
-        if (role === "navigation" || role === "complementary") return true;
+        if (role === "navigation") return true;
+        if (role === "complementary" && /sidebar|history|nav/.test(blob)) return true;
         if (/sidebar|chat-history|history-list|session-list|ds-aside/.test(blob)) return true;
         n = n.parentElement;
       }
@@ -285,10 +286,12 @@ function collectScript() {
       clone.querySelectorAll(
         "button, script, style, [class*='cite'], [class*='fingerprint'], sup, nav, aside, [class*='toolbar'], [class*='code-header']"
       ).forEach((node) => node.remove());
-      return (clone.innerHTML || "")
+      const html = (clone.innerHTML || "")
         .replace(/html\s*Copy\s*Download\s*Run/gi, "")
         .replace(/\bCopy\s*Download\s*Run\b/gi, "")
         .trim();
+      if (html) return html;
+      return ((el as HTMLElement).innerText || el.textContent || "").trim();
     };
     const nodes = [...document.querySelectorAll(replies)].filter((el) => {
       if (isSidebarish(el) || isUserTurn(el) || el.closest("textarea, .ql-editor, rich-textarea")) return false;
@@ -359,8 +362,21 @@ async function stillStreaming(page: Page, spec: CloudBotSpec): Promise<boolean> 
   return false;
 }
 
+/** Playwright locators pierce open shadow roots that querySelectorAll misses on Gemini. */
+async function geminiVisibleReply(page: Page, question: string): Promise<string> {
+  const prompt = (question || "").trim();
+  const sels = ["model-response", ".response-content", '[data-message-author="model"]', "message-content"];
+  for (const sel of sels) {
+    const loc = page.locator(sel).last();
+    if ((await loc.count().catch(() => 0)) === 0) continue;
+    const text = (await loc.innerText({ timeout: 800 }).catch(() => "")).trim();
+    if (text && text !== prompt) return text;
+  }
+  return "";
+}
+
 async function extractReply(page: Page, question: string, spec: CloudBotSpec): Promise<string> {
-  return page.evaluate(({ q, replies, allowLast }) => {
+  const fromDom = await page.evaluate(({ q, replies, allowLast }) => {
     const prompt = (q || "").trim();
     const isSidebarish = (el: Element | null) => {
       let n = el as HTMLElement | null;
@@ -369,7 +385,8 @@ async function extractReply(page: Page, question: string, spec: CloudBotSpec): P
         const role = n.getAttribute("role") || "";
         const blob = `${n.className || ""} ${n.id || ""}`.toLowerCase();
         if (tag === "nav" || tag === "aside") return true;
-        if (role === "navigation" || role === "complementary") return true;
+        if (role === "navigation") return true;
+        if (role === "complementary" && /sidebar|history|nav/.test(blob)) return true;
         if (/sidebar|chat-history|history-list|session-list|ds-aside/.test(blob)) return true;
         n = n.parentElement;
       }
@@ -401,10 +418,12 @@ async function extractReply(page: Page, question: string, spec: CloudBotSpec): P
       clone.querySelectorAll(
         "button, script, style, [class*='cite'], [class*='fingerprint'], sup, nav, aside, [class*='toolbar'], [class*='code-header']"
       ).forEach((node) => node.remove());
-      return (clone.innerHTML || "")
+      const html = (clone.innerHTML || "")
         .replace(/html\s*Copy\s*Download\s*Run/gi, "")
         .replace(/\bCopy\s*Download\s*Run\b/gi, "")
         .trim();
+      if (html) return html;
+      return ((el as HTMLElement).innerText || el.textContent || "").trim();
     };
     const markdowns = [...document.querySelectorAll(replies)].filter((el) => {
       if (isSidebarish(el) || isUserTurn(el) || inComposer(el)) return false;
@@ -438,6 +457,9 @@ async function extractReply(page: Page, question: string, spec: CloudBotSpec): P
     }
     return "";
   }, { q: question, replies: spec.replies.join(", "), allowLast: spec.id === "gemini" });
+  if (fromDom) return fromDom;
+  if (spec.id === "gemini") return geminiVisibleReply(page, question);
+  return "";
 }
 
 export type WaitResult = {
