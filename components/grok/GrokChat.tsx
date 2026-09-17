@@ -273,6 +273,7 @@ export default function GrokChat() {
               className={`grok-bot ${b.id === botId ? "active" : ""}`}
               onClick={() => setBotId(b.id)}
               type="button"
+              title={`${b.name} · ${on ? "Online" : "Offline"}`}
             >
               <span className="grok-ava" style={{ background: b.color }}>{b.initials}</span>
               <span className="grok-bot-meta">
@@ -304,16 +305,16 @@ export default function GrokChat() {
         }}
       >
         <header className="grok-top">
-          <div>
+          <div className="grok-top-copy">
             <h2>{bot.name}</h2>
-            <p>
-              {cloudReady
-                ? `Online. Log in once in Cloud Chrome to ${bot.name}. Later Sends reuse that login and show the answer here.`
-                : "Offline. Save the Browserbase key if asked, Connect once to log in, then Send."}
+            <p title={cloudReady
+              ? `Online. Log in once in Cloud Chrome to ${bot.name}. Later Sends reuse that login and show the answer here.`
+              : "Offline. Save the Browserbase key if asked, Connect once to log in, then Send."}>
+              {cloudReady ? "Online · Cloud Chrome" : "Offline"}
             </p>
           </div>
           {cloudReady ? (
-            <button type="button" className="add-account" onClick={() => connect(bot)}>Open Cloud Chrome</button>
+            <button type="button" className="add-account" title="Open Cloud Chrome" onClick={() => connect(bot)}>Chrome</button>
           ) : (
             <button type="button" className="add-account" onClick={() => connect(bot)}>Connect</button>
           )}
