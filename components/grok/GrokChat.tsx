@@ -330,7 +330,7 @@ export default function GrokChat() {
           {messages.length === 0 && (
             <div className="empty-state">
               {isDeepSeek
-                ? "Type, drop a file on this panel, or Attach. Send puts it into Cloud Chrome DeepSeek."
+                ? "Type a question, drop a file, or tap + . Send goes to DeepSeek."
                 : "Connect opens the site. Send puts the same text in that tab."}
             </div>
           )}
@@ -373,10 +373,26 @@ export default function GrokChat() {
             send();
           }}
         >
-          {isDeepSeek && (
-            <div className="grok-attach">
-              <label className="add-account">
-                Attach
+          {isDeepSeek && files.length > 0 && (
+            <div className="grok-chips">
+              {files.map((f) => (
+                <span key={f.name + f.size} className="grok-chip">
+                  {f.name}
+                  <button
+                    type="button"
+                    className="grok-x"
+                    onClick={() => setFiles((prev) => prev.filter((x) => x !== f))}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="grok-bar">
+            {isDeepSeek && (
+              <label className="grok-plus" title="Add photos and files">
+                +
                 <input
                   type="file"
                   accept="image/*,.pdf,.txt,.csv,.doc,.docx"
@@ -388,56 +404,36 @@ export default function GrokChat() {
                   }}
                 />
               </label>
-              <button
-                type="button"
-                className="add-account"
-                onClick={async () => {
-                  try {
-                    const res = await fetch("https://picsum.photos/400", { cache: "no-store" });
-                    const blob = await res.blob();
-                    addFiles([new File([blob], "sample.jpg", { type: blob.type || "image/jpeg" })]);
-                  } catch {
-                    addFiles([new File([new Blob(["sample"], { type: "text/plain" })], "sample.txt", { type: "text/plain" })]);
-                  }
-                }}
-              >
-                Sample image
-              </button>
-              {files.map((f) => (
-                <em key={f.name + f.size}>
-                  {f.name}
-                  <button
-                    type="button"
-                    className="grok-x"
-                    onClick={() => setFiles((prev) => prev.filter((x) => x !== f))}
-                  >
-                    ×
-                  </button>
-                </em>
-              ))}
-            </div>
-          )}
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onPaste={(e) => {
-              if (!isDeepSeek) return;
-              const pasted = Array.from(e.clipboardData?.files || []);
-              if (pasted.length) {
-                e.preventDefault();
-                addFiles(pasted);
-              }
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.altKey) {
-                e.preventDefault();
-                send();
-              }
-            }}
-            placeholder={isDeepSeek ? "Drop a file here, or type… Send goes to DeepSeek." : `Same prompt for ${bot.name}…`}
-            rows={2}
-          />
-          <button type="submit" disabled={sending || (!draft.trim() && files.length === 0)}>{sending ? "…" : "Send"}</button>
+            )}
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onPaste={(e) => {
+                if (!isDeepSeek) return;
+                const pasted = Array.from(e.clipboardData?.files || []);
+                if (pasted.length) {
+                  e.preventDefault();
+                  addFiles(pasted);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.altKey) {
+                  e.preventDefault();
+                  send();
+                }
+              }}
+              placeholder={isDeepSeek ? "Ask anything" : `Same prompt for ${bot.name}…`}
+              rows={1}
+            />
+            <button
+              type="submit"
+              className="grok-send"
+              disabled={sending || (!draft.trim() && files.length === 0)}
+              aria-label="Send"
+            >
+              {sending ? "…" : "↑"}
+            </button>
+          </div>
         </form>
       </section>
     </div>
