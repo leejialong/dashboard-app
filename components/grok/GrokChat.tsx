@@ -39,6 +39,7 @@ export default function GrokChat() {
   const [cloudReady, setCloudReady] = useState(false);
   const [sending, setSending] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
+  const [dragging, setDragging] = useState(false);
 
   const bot = useMemo(() => GROK_BOTS.find((b) => b.id === botId) || GROK_BOTS[0], [botId]);
   const messages = hist[botId] || [];
@@ -54,6 +55,24 @@ export default function GrokChat() {
     window.addEventListener("bb-configured", onReady);
     return () => window.removeEventListener("bb-configured", onReady);
   }, []);
+
+  function addFiles(list: File[]) {
+    if (!list.length) return;
+    setFiles((prev) => {
+      const next = [...prev];
+      for (const file of list) {
+        if (next.length >= 3) break;
+        if (next.some((f) => f.name === file.name && f.size === file.size)) continue;
+        next.push(file);
+      }
+      return next;
+    });
+  }
+
+  function filesFromDataTransfer(dt: DataTransfer | null): File[] {
+    if (!dt) return [];
+    return Array.from(dt.files || []).filter(Boolean);
+  }
 
   function persist(next: Connected) {
     setConnected(next);
@@ -257,7 +276,30 @@ export default function GrokChat() {
           );
         })}
       </aside>
-      <section className="grok-main">
+      <section
+        className={`grok-main ${isDeepSeek && dragging ? "drop-on" : ""}`}
+        onDragEnter={(e) => {
+          if (!isDeepSeek) return;
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragOver={(e) => {
+          if (!isDeepSeek) return;
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "copy";
+        }}
+        onDragLeave={(e) => {
+          if (!isDeepSeek) return;
+          if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+          setDragging(false);
+        }}
+        onDrop={(e) => {
+          if (!isDeepSeek) return;
+          e.preventDefault();
+          setDragging(false);
+          addFiles(filesFromDataTransfer(e.dataTransfer));
+        }}
+      >
         <header className="grok-top">
           <div>
             <h2>{bot.name}</h2>
@@ -287,7 +329,7 @@ export default function GrokChat() {
           {messages.length === 0 && (
             <div className="empty-state">
               {isDeepSeek
-                ? "Type a prompt and Send. The Vercel server asks DeepSeek in Cloud Chrome and draws the answer in this thread."
+                ? "Type, drop a file on this panel, or Attach. Send puts it into Cloud Chrome DeepSeek."
                 : "Connect opens the site. Send puts the same text in that tab."}
             </div>
           )}
@@ -325,27 +367,58 @@ export default function GrokChat() {
                   multiple
                   hidden
                   onChange={(e) => {
-                    const next = [...files, ...Array.from(e.target.files || [])].slice(0, 3);
-                    setFiles(next);
+                    addFiles(Array.from(e.target.files || []));
                     e.target.value = "";
                   }}
                 />
               </label>
+              <button
+                type="button"
+                className="add-account"
+                onClick={async () => {
+                  try {
+                    const res = await fetch("https://picsum.photos/400", { cache: "no-store" });
+                    const blob = await res.blob();
+                    addFiles([new File([blob], "sample.jpg", { type: blob.type || "image/jpeg" })]);
+                  } catch {
+                    addFiles([new File([new Blob(["sample"], { type: "text/plain" })], "sample.txt", { type: "text/plain" })]);
+                  }
+                }}
+              >
+                Sample image
+              </button>
               {files.map((f) => (
-                <em key={f.name}>{f.name}</em>
+                <em key={f.name + f.size}>
+                  {f.name}
+                  <button
+                    type="button"
+                    className="grok-x"
+                    onClick={() => setFiles((prev) => prev.filter((x) => x !== f))}
+                  >
+                    ×
+                  </button>
+                </em>
               ))}
             </div>
           )}
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
+            onPaste={(e) => {
+              if (!isDeepSeek) return;
+              const pasted = Array.from(e.clipboardData?.files || []);
+              if (pasted.length) {
+                e.preventDefault();
+                addFiles(pasted);
+              }
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.altKey) {
                 e.preventDefault();
                 send();
               }
             }}
-            placeholder={isDeepSeek ? "Ask DeepSeek. The answer comes back here…" : `Same prompt for ${bot.name}…`}
+            placeholder={isDeepSeek ? "Drop a file here, or type… Send goes to DeepSeek." : `Same prompt for ${bot.name}…`}
             rows={2}
           />
           <button type="submit" disabled={sending || (!draft.trim() && files.length === 0)}>{sending ? "…" : "Send"}</button>

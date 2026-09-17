@@ -452,7 +452,22 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
 .grok-bot-meta em { font-size: 11px; color: var(--muted); font-style: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .grok-bot-meta em.on { color: var(--accent); }
 .grok-bot-meta em.off { color: var(--danger); }
-.grok-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); }
+.grok-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--bg); position: relative; }
+.grok-main.drop-on { outline: 2px dashed var(--accent); outline-offset: -8px; }
+.grok-main.drop-on::after {
+  content: "Drop image or PDF";
+  position: absolute;
+  inset: 48px 12px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(20, 22, 27, 0.72);
+  color: var(--accent);
+  font-size: 16px;
+  border-radius: 10px;
+  pointer-events: none;
+  z-index: 2;
+}
 .grok-top {
   display: flex;
   justify-content: space-between;
@@ -488,7 +503,8 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
 .grok-media a { color: var(--accent); }
 .grok-composer { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px; border-top: 1px solid var(--border); }
 .grok-attach { width: 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.grok-attach em { font-style: normal; font-size: 12px; color: var(--muted); }
+.grok-attach em { font-style: normal; font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.grok-x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 0 4px; }
 .grok-composer textarea {
   flex: 1;
   min-width: 0;
