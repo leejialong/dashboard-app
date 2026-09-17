@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import Browserbase from "@browserbasehq/sdk";
+import { urlMatchesBotHost } from "@/lib/bb-bots";
 
 export const BB_CTX_COOKIE = "bb_ds_ctx";
 export const BB_SID_COOKIE = "bb_ds_sid";
@@ -146,13 +147,34 @@ export async function createSession(bb: Browserbase, contextId: string, keepAliv
   }
 }
 
-export async function liveViewUrl(bb: Browserbase, sessionId: string): Promise<string | null> {
-  try {
-    const debug = await bb.sessions.debug(sessionId);
-    return debug.debuggerFullscreenUrl || debug.debuggerUrl || null;
-  } catch {
-    return `https://www.browserbase.com/sessions/${sessionId}`;
+export async function liveViewUrl(bb: Browserbase, sessionId: string, host?: string): Promise<string | null> {
+  const pick = async () => {
+    try {
+      const debug = (await bb.sessions.debug(sessionId)) as {
+        debuggerFullscreenUrl?: string;
+        debuggerUrl?: string;
+        pages?: Array<{ url?: string; debuggerFullscreenUrl?: string; debuggerUrl?: string }>;
+      };
+      if (host && Array.isArray(debug.pages)) {
+        const match = [...debug.pages].reverse().find((p) => urlMatchesBotHost(String(p.url || ""), host));
+        const pageUrl = match?.debuggerFullscreenUrl || match?.debuggerUrl;
+        if (pageUrl) return { url: pageUrl, matched: true };
+      }
+      return {
+        url: debug.debuggerFullscreenUrl || debug.debuggerUrl || null,
+        matched: false,
+      };
+    } catch {
+      return { url: `https://www.browserbase.com/sessions/${sessionId}`, matched: false };
+    }
+  };
+
+  let result = await pick();
+  if (host && !result.matched) {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    result = await pick();
   }
+  return result.url;
 }
 
 export async function getLiveSession() {

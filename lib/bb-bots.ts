@@ -68,3 +68,14 @@ export function parseCloudBotId(raw: unknown): CloudBotId {
 export function cloudBot(id: CloudBotId): CloudBotSpec {
   return CLOUD_BOTS[id];
 }
+
+export function urlMatchesBotHost(url: string, host: string): boolean {
+  const want = String(host || "").toLowerCase();
+  if (!want) return false;
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return hostname === want || hostname.endsWith(`.${want}`);
+  } catch {
+    return false;
+  }
+}

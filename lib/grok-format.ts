@@ -29,7 +29,45 @@ const ALLOWED = new Set([
 ]);
 
 export function looksLikeHtml(text: string): boolean {
-  return /<\/?(h[1-6]|p|ul|ol|li|table|thead|tbody|tr|th|td|pre|strong|em|blockquote)\b/i.test(text);
+  return /<\/?(h[1-6]|p|ul|ol|li|table|thead|tbody|tr|th|td|pre|strong|em|blockquote|span|div)\b/i.test(text);
+}
+
+function isTrivialAttrChunk(attrs: string): boolean {
+  const s = attrs.trim();
+  if (!s) return true;
+  const re = /([^\s=]+)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s"'>]+))?/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s))) {
+    const raw = m[2];
+    const val = raw == null ? "" : raw.replace(/^['"]|['"]$/g, "").trim();
+    if (val) return false;
+  }
+  return true;
+}
+
+export function unwrapTrivialWrappers(text: string): string {
+  let s = String(text || "").trim();
+  for (let i = 0; i < 8; i++) {
+    const m = s.match(/^<(span|div)(\s[^>]*)?>\s*([\s\S]*?)\s*<\/\1>$/i);
+    if (!m || !isTrivialAttrChunk(m[2] || "")) break;
+    s = m[3].trim();
+  }
+  return s;
+}
+
+function isTrivialWrapper(el: HTMLElement): boolean {
+  if (el.tagName !== "SPAN" && el.tagName !== "DIV") return false;
+  return [...el.attributes].every((attr) => !String(attr.value || "").trim());
+}
+
+function unwrapElement(el: HTMLElement) {
+  const parent = el.parentNode;
+  if (!parent) {
+    el.remove();
+    return;
+  }
+  while (el.firstChild) parent.insertBefore(el.firstChild, el);
+  parent.removeChild(el);
 }
 
 export function sanitizeHtml(html: string): string {
@@ -59,19 +97,17 @@ export function sanitizeHtml(html: string): string {
       }
       if (!ALLOWED.has(tag)) {
         walk(el);
-        const parent = el.parentNode;
-        if (parent) {
-          while (el.firstChild) parent.insertBefore(el.firstChild, el);
-          parent.removeChild(el);
-        }
+        unwrapElement(el);
         return;
       }
+      const trivial = isTrivialWrapper(el);
       [...el.attributes].forEach((attr) => {
         const name = attr.name.toLowerCase();
         if (tag === "A" && name === "href" && /^(https?:|mailto:|#)/i.test(attr.value)) return;
         el.removeAttribute(attr.name);
       });
       walk(el);
+      if (trivial) unwrapElement(el);
     });
   };
 
@@ -187,7 +223,7 @@ export function markdownToHtml(raw: string): string {
 }
 
 export function formatBotHtml(text: string): string {
-  const src = String(text || "").trim();
+  const src = unwrapTrivialWrappers(String(text || "").trim());
   if (!src) return "";
   if (looksLikeHtml(src)) return sanitizeHtml(src) || markdownToHtml(src.replace(/<[^>]+>/g, " "));
   return markdownToHtml(src);
