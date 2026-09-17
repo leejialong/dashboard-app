@@ -1,5 +1,6 @@
 import { chromium, type Browser, type Page } from "playwright-core";
-import { cloudBot, type CloudBotId, type CloudBotSpec } from "@/lib/bb-bots";
+import { cloudBot, urlMatchesBotHost, type CloudBotId, type CloudBotSpec } from "@/lib/bb-bots";
+import { unwrapTrivialWrappers } from "@/lib/grok-format";
 
 const BLOCK_HINTS = [
   "abnormal usage environment",
@@ -67,7 +68,7 @@ export function sanitizeAnswer(raw: string): string {
   s = s.replace(/(?:&nbsp;|\u00a0)+/g, " ");
   s = s.replace(/\n{3,}/g, "\n\n");
   s = s.replace(/[ \t]+\n/g, "\n");
-  return s.trim();
+  return unwrapTrivialWrappers(s.trim());
 }
 
 export async function connectCdp(connectUrl: string): Promise<{ browser: Browser; page: Page }> {
@@ -84,32 +85,37 @@ function isBlankUrl(url: string): boolean {
 export async function pageForBot(browser: Browser, botId: CloudBotId): Promise<Page> {
   const spec = cloudBot(botId);
   const context = browser.contexts()[0] || (await browser.newContext());
-  for (const p of context.pages()) {
-    const url = p.url();
-    if (url.includes(spec.host)) {
-      await p.bringToFront().catch(() => undefined);
-      return p;
-    }
+  const existing = context.pages().find((p) => urlMatchesBotHost(p.url(), spec.host));
+  if (existing) {
+    await existing.bringToFront().catch(() => undefined);
+    return existing;
   }
   const blank = context.pages().find((p) => isBlankUrl(p.url()));
   const page = blank || (await context.newPage());
+  await page.bringToFront().catch(() => undefined);
   await page.goto(spec.url, { waitUntil: "domcontentloaded", timeout: 25000 });
+  await page.bringToFront().catch(() => undefined);
   return page;
 }
 
 export async function openBot(page: Page, botId: CloudBotId): Promise<void> {
   const spec = cloudBot(botId);
-  if (page.url().includes(spec.host) && (await hasChatComposer(page, spec))) return;
+  await page.bringToFront().catch(() => undefined);
+  if (urlMatchesBotHost(page.url(), spec.host) && (await hasChatComposer(page, spec))) return;
   await dismissNoise(page);
-  if (!page.url().includes(spec.host)) {
+  if (!urlMatchesBotHost(page.url(), spec.host)) {
     await page.goto(spec.url, { waitUntil: "domcontentloaded", timeout: 25000 });
   }
   await dismissNoise(page);
   const until = Date.now() + 8000;
   while (Date.now() < until) {
-    if (await hasChatComposer(page, spec)) return;
+    if (await hasChatComposer(page, spec)) {
+      await page.bringToFront().catch(() => undefined);
+      return;
+    }
     await page.waitForTimeout(400);
   }
+  await page.bringToFront().catch(() => undefined);
 }
 
 export async function openDeepSeek(page: Page): Promise<void> {

@@ -26,7 +26,7 @@ export async function POST(req: Request) {
 
     const { bb, session } = await getLiveSession();
     let probe = null;
-    let liveUrl = await liveViewUrl(bb, session.id);
+    let liveUrl: string | null = null;
     try {
       const { browser } = await connectCdp(session.connectUrl);
       try {
@@ -36,8 +36,9 @@ export async function POST(req: Request) {
       } finally {
         await browser.close().catch(() => undefined);
       }
-      liveUrl = (await liveViewUrl(bb, session.id)) || liveUrl;
+      liveUrl = await liveViewUrl(bb, session.id, spec.host);
     } catch (err) {
+      liveUrl = await liveViewUrl(bb, session.id, spec.host);
       return NextResponse.json({
         ok: true,
         configured: true,

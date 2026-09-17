@@ -113,7 +113,6 @@ export default function GrokChat() {
     } catch {
       data = { error: raw || `Server returned HTTP ${res.status} with no JSON` };
     }
-    // Always open liveUrl when present so Connect/Chrome can reach the session.
     if (data.liveUrl) window.open(data.liveUrl, "dash_bb_cloud");
     if (data.needLogin) {
       markBot(target.id, "needLogin");
@@ -377,11 +376,7 @@ export default function GrokChat() {
                     : "Offline"}
             </p>
           </div>
-          {cloudReady ? (
-            <button type="button" className="add-account" title="Open Cloud Chrome" onClick={() => connect(bot)}>Chrome</button>
-          ) : (
-            <button type="button" className="add-account" onClick={() => connect(bot)}>Connect</button>
-          )}
+          <button type="button" className="add-account" title="Open Cloud Chrome" onClick={() => connect(bot)}>Connect</button>
         </header>
         <div className="grok-thread">
           {messages.length === 0 && (

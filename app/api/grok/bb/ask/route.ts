@@ -79,7 +79,7 @@ export async function POST(req: Request) {
           await openBot(page, bot);
           const probe = await probeBot(page, bot);
           if (probe.blocked || !probe.loggedIn) {
-            const liveUrl = await liveViewUrl(bb, sessionId);
+            const liveUrl = await liveViewUrl(bb, sessionId, spec.host);
             emit({
               type: "done",
               ok: false,
