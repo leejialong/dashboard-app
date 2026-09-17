@@ -195,13 +195,16 @@ export default function Dashboard({ initialAccounts, initialEmails }: DashboardP
   return (
     <div className="app">
       <header className="page">
-        <div>
+        <div className="brand">
+          <img src="/dashboard-icon.png" alt="" width={40} height={40} className="brand-icon" />
+          <div>
           <h1>Unified Inbox</h1>
           <p>
             {accounts.length} connected accounts · {unreadTotal} unread
             {gmailStatus === "loading" && " · syncing Gmail…"}
             {gmailError && ` · Gmail: ${gmailError}`}
           </p>
+          </div>
         </div>
       </header>
 
