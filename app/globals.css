@@ -12,7 +12,11 @@
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; }
+html, body {
+  height: 100%;
+  width: 100%;
+  overflow-x: hidden;
+}
 body {
   margin: 0;
   background: var(--bg);
@@ -21,11 +25,11 @@ body {
 }
 
 .app {
+  width: 100%;
+  min-width: 0;
   height: 100vh;
   display: flex;
   flex-direction: column;
-  max-width: 1040px;
-  margin: 0 auto;
   padding: 24px;
 }
 
@@ -81,7 +85,9 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
 .panels {
   flex: 1;
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 280px minmax(0, 1fr);
+  width: 100%;
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
@@ -94,6 +100,7 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  min-width: 0;
   min-height: 0;
 }
 .accounts-toolbar { padding: 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
@@ -108,7 +115,7 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
   font-family: Tahoma, Arial, sans-serif;
 }
 .accounts-toolbar input::placeholder { color: var(--muted); }
-.filters { display: flex; gap: 6px; margin-top: 8px; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .filter-chip {
   font-size: 10.5px;
   color: var(--muted);
@@ -222,11 +229,12 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
 .more-menu hr { border: none; border-top: 1px solid var(--border); margin: 0; }
 
 /* RIGHT panel */
-.stream-panel { display: flex; flex-direction: column; min-height: 0; }
+.stream-panel { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .stream-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -252,6 +260,8 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
   font-size: 12px;
   color: var(--text);
   width: 200px;
+  max-width: 100%;
+  min-width: 0;
   font-family: Tahoma, Arial, sans-serif;
 }
 .stream-header .search::placeholder { color: var(--muted); }
@@ -262,14 +272,17 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
 
 .email-row {
   display: grid;
-  grid-template-columns: 6px 62px 78px 1fr auto;
+  grid-template-columns: 6px 62px 78px minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   padding: 11px 16px;
   border-bottom: 1px solid var(--border);
   font-size: 12.8px;
   cursor: pointer;
+  min-width: 0;
 }
+.row-content { min-width: 0; overflow: hidden; }
+.row-content .subject { overflow-wrap: anywhere; }
 .email-row:hover { background: var(--surface); }
 .dot { width: 6px; height: 6px; border-radius: 50%; }
 .row-time { font-family: Consolas, "Courier New", monospace; color: var(--muted); font-size: 11px; }
@@ -336,3 +349,55 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
 .open-gmail:hover { text-decoration: underline; }
 .modal.small { width: 340px; text-align: center; }
 .modal.small p { font-size: 13px; color: var(--muted); line-height: 1.6; margin: 0 0 16px; }
+
+/* Tablet: keep two columns, narrow the sidebar */
+@media (max-width: 1024px) {
+  .app { padding: 20px; }
+  .panels { grid-template-columns: minmax(200px, 32%) minmax(0, 1fr); }
+}
+
+/* Phone: stack sidebar above main, no horizontal scroll */
+@media (max-width: 768px) {
+  .app {
+    height: auto;
+    min-height: 100vh;
+    padding: 16px;
+  }
+  header.page h1 { font-size: 20px; }
+  header.page p { font-size: 12px; }
+  .panels {
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+  }
+  .accounts-panel {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    max-height: 42vh;
+  }
+  .stream-panel { min-height: 50vh; flex: 1; }
+  .stream-header .search { width: 100%; min-height: 44px; }
+  .accounts-toolbar input,
+  .add-account,
+  .btn-ghost,
+  .btn-solid,
+  .btn-more,
+  .filter-chip,
+  .row-open,
+  .modal .close,
+  .more-menu button {
+    min-height: 44px;
+  }
+  .filter-chip {
+    font-size: 12px;
+    padding: 10px 14px;
+  }
+  .email-row {
+    grid-template-columns: 6px auto minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 12px;
+  }
+  .row-account { display: none; }
+  .row-content .sender,
+  .row-content .subject { display: block; }
+}
