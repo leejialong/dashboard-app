@@ -536,10 +536,44 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
   font-size: 13px;
 }
 .grok-thread { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
-.grok-bubble { max-width: 80%; padding: 10px 12px; border-radius: 12px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
-.grok-bubble.user { align-self: flex-end; background: var(--accent-dim); color: var(--accent); }
+.grok-bubble { max-width: 80%; padding: 10px 12px; border-radius: 12px; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.grok-bubble.user { align-self: flex-end; background: var(--accent-dim); color: var(--accent); white-space: pre-wrap; }
 .grok-bubble.bot { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); }
 .grok-bubble.wide { max-width: 100%; }
+.grok-md { color: var(--text); }
+.grok-md h1, .grok-md h2, .grok-md h3 {
+  margin: 18px 0 8px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.grok-md h1 { font-size: 20px; }
+.grok-md h2 { font-size: 16px; }
+.grok-md h3 { font-size: 14px; }
+.grok-md h1:first-child, .grok-md h2:first-child, .grok-md h3:first-child { margin-top: 0; }
+.grok-md p { margin: 8px 0; }
+.grok-md ul, .grok-md ol { margin: 8px 0; padding-left: 1.3em; }
+.grok-md li { margin: 4px 0; }
+.grok-md strong { font-weight: 700; }
+.grok-md a { color: var(--accent); }
+.grok-md pre {
+  margin: 10px 0;
+  padding: 10px 12px;
+  overflow: auto;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.grok-table-wrap, .grok-md table { width: 100%; overflow-x: auto; }
+.grok-md table { border-collapse: collapse; margin: 10px 0 16px; font-size: 13px; }
+.grok-md th, .grok-md td {
+  border-bottom: 1px solid var(--border);
+  padding: 10px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+.grok-md th { color: var(--muted); font-weight: 600; font-size: 12px; }
 .grok-html { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
 .grok-html-preview {
   width: 100%;

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { GROK_BOTS, grokPromptUrl, grokWindowName, type GrokBot } from "@/lib/grok-bots";
-import { downloadTextFile, splitHtmlReply } from "@/lib/grok-format";
+import { downloadTextFile, formatBotHtml, splitHtmlReply } from "@/lib/grok-format";
 
 type Media = { kind?: string; url: string; name?: string };
 type Msg = { role: "user" | "bot"; text: string; media?: Media[] };
@@ -382,9 +382,15 @@ export default function GrokChat() {
           )}
           {messages.map((m, i) => {
             const split = m.role === "bot" ? splitHtmlReply(m.text) : { prose: m.text, html: null as string | null };
+            const formatted = m.role === "bot" ? formatBotHtml(split.prose) : "";
+            const wide = Boolean(split.html || /<table|<h[1-3]/i.test(formatted));
             return (
-            <div key={i} className={`grok-bubble ${m.role}${split.html ? " wide" : ""}`}>
-              {split.prose}
+            <div key={i} className={`grok-bubble ${m.role}${wide ? " wide" : ""}`}>
+              {m.role === "bot" && formatted ? (
+                <div className="grok-md" dangerouslySetInnerHTML={{ __html: formatted }} />
+              ) : (
+                split.prose
+              )}
               {split.html && (
                 <div className="grok-html">
                   <button
