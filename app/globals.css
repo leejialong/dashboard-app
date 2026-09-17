@@ -427,6 +427,14 @@ header.page p { margin: 0; color: var(--muted); font-size: 12.5px; }
 .bb-poc-error { margin: 10px 0 0; color: var(--danger); font-size: 12px; }
 
 .grok-page { min-height: 100vh; }
+.grok-header-min {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+.grok-page.header-min header.page { display: none; }
 .grok-shell {
   flex: 1;
   display: grid;
